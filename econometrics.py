@@ -5,11 +5,53 @@ Projet MoSEF 2024-2025
 
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests
 
 from statsmodels.tsa.stattools import adfuller, grangercausalitytests
 from statsmodels.tsa.api import VAR
+
+
+def generate_demo_sentiment(crypto_id="bitcoin", days=60):
+    """
+    Genere des donnees de sentiment simulees pour la demo
+    Simule une correlation realiste avec les prix
+    """
+    np.random.seed(42)
+    
+    # Recuperer les vrais prix
+    prices_df = get_historical_prices(crypto_id, days)
+    if prices_df.empty:
+        return pd.DataFrame()
+    
+    prices_df = prices_df.sort_values('date')
+    prices_df['log_return'] = np.log(prices_df['price'] / prices_df['price'].shift(1))
+    prices_df = prices_df.dropna()
+    
+    # Generer sentiment correle aux returns (avec du bruit)
+    n = len(prices_df)
+    noise = np.random.normal(0, 0.15, n)
+    
+    # Sentiment = 0.3 * returns_precedents + 0.2 * returns_actuels + bruit
+    returns = prices_df['log_return'].values
+    sentiment = np.zeros(n)
+    
+    for i in range(n):
+        base = 0.0
+        if i > 0:
+            base += 0.3 * returns[i-1] * 10  # Retard de 1 jour
+        base += 0.2 * returns[i] * 10  # Contemporain
+        sentiment[i] = np.clip(base + noise[i], -1, 1)
+    
+    # Creer DataFrame sentiment
+    sentiment_df = pd.DataFrame({
+        'date': prices_df['date'].values,
+        'sentiment_mean': sentiment,
+        'sentiment_std': np.abs(np.random.normal(0.1, 0.05, n)),
+        'post_count': np.random.randint(10, 100, n)
+    })
+    
+    return sentiment_df
 
 
 def get_historical_prices(crypto_id, days=60):
@@ -288,6 +330,62 @@ def run_full_analysis(posts, results, crypto_id, days=60, max_lag=5):
     output["conclusion"] = generate_conclusion(output)
     output["merged_data"] = merged
 
+    return output
+
+
+def run_demo_analysis(crypto_id="bitcoin", days=60, max_lag=5):
+    """
+    Lance l'analyse avec des donnees simulees (mode demo)
+    """
+    output = {
+        "status": "ok",
+        "mode": "demo",
+        "data_info": {},
+        "adf_tests": {},
+        "granger": {},
+        "var": {},
+        "cross_corr": {},
+        "conclusion": ""
+    }
+    
+    # Donnees simulees
+    sentiment_df = generate_demo_sentiment(crypto_id, days)
+    if sentiment_df.empty:
+        output["status"] = "error"
+        output["error"] = "impossible de generer les donnees demo"
+        return output
+    
+    prices_df = get_historical_prices(crypto_id, days)
+    if prices_df.empty:
+        output["status"] = "error"
+        output["error"] = "pas de donnees prix"
+        return output
+    
+    merged = merge_data(sentiment_df, prices_df)
+    if merged.empty or len(merged) < 10:
+        output["status"] = "error"
+        output["error"] = f"pas assez de donnees ({len(merged)} jours)"
+        return output
+    
+    output["data_info"] = {
+        "jours_sentiment": len(sentiment_df),
+        "jours_prix": len(prices_df),
+        "jours_merged": len(merged),
+        "date_debut": str(merged['date'].min().date()),
+        "date_fin": str(merged['date'].max().date())
+    }
+    
+    # Tests
+    output["adf_tests"]["sentiment"] = test_adf(merged['sentiment_mean'], "sentiment")
+    output["adf_tests"]["returns"] = test_adf(merged['log_return'], "returns")
+    output["granger"] = test_granger(merged, max_lag)
+    output["var"] = fit_var(merged, max_lag * 2)
+    output["cross_corr"] = cross_correlation(merged['sentiment_mean'], merged['log_return'], max_lag)
+    
+    # Conclusion
+    output["conclusion"] = generate_conclusion(output)
+    output["merged_data"] = merged
+    
     return output
 
 

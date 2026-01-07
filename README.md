@@ -217,12 +217,11 @@ Les posts Reddit et StockTwits sont bruités : URLs, mentions @user, emojis, car
 
 ## Auteurs
 
-Projet réalisé dans le cadre du Master MoSEF (Modélisation Statistique Économique et Financière), Université Paris 1 Panthéon-Sorbonne.
+Projet réalisé dans le cadre du Master MoSEF (Modélisation Statistiques Économiques et Financières), Université Paris 1 Panthéon-Sorbonne.
 
 - Arthur Destribats
-- Niama [Nom]
-- [Autres membres]
-
+- Niama El Kamal
+- Arthur Destribats
 ---
 
 ## Licence

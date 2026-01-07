@@ -1,5 +1,5 @@
 """
-StockTwits Scraper - Selenium (bypass Cloudflare)
+StockTwits Scraper - Selenium uniquement (bypass Cloudflare)
 Labels humains Bullish/Bearish inclus!
 """
 
@@ -19,15 +19,26 @@ try:
 except ImportError:
     SELENIUM_OK = False
 
+# Limites pour eviter le ban
+LIMITS = {
+    "selenium": 300  # Seule methode disponible pour StockTwits
+}
 
-def scrape_stocktwits(symbol: str, limit: int = 100, max_limit: int = 300) -> list:
+
+def get_limits():
+    """Retourne les limites par methode"""
+    return LIMITS
+
+
+def scrape_stocktwits(symbol: str, limit: int = 100, method: str = "selenium") -> list:
     """
     Scrape StockTwits avec Selenium (bypass Cloudflare)
+    Note: HTTP ne fonctionne pas (Cloudflare), seul Selenium est disponible
 
     Args:
         symbol: Symbole crypto (ex: BTC.X, ETH.X)
         limit: Nombre de posts souhaites
-        max_limit: Limite max (default 300 pour Selenium)
+        method: Ignore (toujours selenium)
 
     Returns:
         Liste de posts avec human_label (Bullish/Bearish/None)
@@ -38,7 +49,7 @@ def scrape_stocktwits(symbol: str, limit: int = 100, max_limit: int = 300) -> li
 
     posts = []
     seen_ids = set()
-    limit = min(limit, max_limit)
+    limit = min(limit, LIMITS["selenium"])
 
     # Config Chrome
     options = Options()
@@ -166,6 +177,7 @@ def extract_json_data(driver, limit: int) -> list:
                 "score": likes,
                 "created_utc": msg.get("created_at"),
                 "source": "stocktwits",
+                "method": "selenium",
                 "human_label": human_label
             })
 
@@ -253,6 +265,7 @@ def parse_html_posts(page_source: str, seen_ids: set) -> list:
                 "score": likes,
                 "created_utc": timestamp,
                 "source": "stocktwits",
+                "method": "selenium",
                 "human_label": human_label
             })
 

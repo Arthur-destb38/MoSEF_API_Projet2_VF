@@ -12,7 +12,7 @@ from enum import Enum
 from datetime import datetime
 import time
 
-from app.scrapers import HttpScraper, SeleniumScraper, scrape_reddit, scrape_stocktwits
+from app.scrapers import scrape_reddit, scrape_stocktwits, get_reddit_limits, get_stocktwits_limits
 from app.nlp import SentimentAnalyzer
 from app.prices import CryptoPrices
 from app.utils import clean_text
@@ -48,6 +48,10 @@ class SourceEnum(str, Enum):
     reddit = "reddit"
     stocktwits = "stocktwits"
 
+class MethodEnum(str, Enum):
+    http = "http"
+    selenium = "selenium"
+
 class ModelEnum(str, Enum):
     finbert = "finbert"
     cryptobert = "cryptobert"
@@ -57,20 +61,32 @@ class ModelEnum(str, Enum):
 
 class ScrapeRequest(BaseModel):
     source: SourceEnum = Field(default=SourceEnum.reddit)
+    method: MethodEnum = Field(default=MethodEnum.http, description="http (rapide) ou selenium (lent)")
     symbol: str = Field(default="Bitcoin", description="Subreddit ou symbole StockTwits (BTC.X)")
-    limit: int = Field(default=50, ge=10, le=300, description="Max 300 pour StockTwits (Selenium)")
+    limit: int = Field(default=50, ge=10, le=1000)
 
 class AnalyzeRequest(BaseModel):
     source: SourceEnum = Field(default=SourceEnum.reddit)
+    method: MethodEnum = Field(default=MethodEnum.http, description="http ou selenium")
     model: ModelEnum = Field(default=ModelEnum.finbert)
     crypto_id: str = Field(default="bitcoin", description="ID CoinGecko")
     symbol: str = Field(default="Bitcoin", description="Subreddit ou symbole StockTwits")
-    limit: int = Field(default=50, ge=10, le=300)
+    limit: int = Field(default=50, ge=10, le=1000)
+
+class AnalyzeBothRequest(BaseModel):
+    method: MethodEnum = Field(default=MethodEnum.http, description="Methode pour Reddit")
+    model: ModelEnum = Field(default=ModelEnum.finbert)
+    crypto_id: str = Field(default="bitcoin")
+    subreddit: str = Field(default="Bitcoin")
+    stocktwits_symbol: str = Field(default="BTC.X")
+    limit_reddit: int = Field(default=50, ge=10, le=1000)
+    limit_stocktwits: int = Field(default=50, ge=10, le=300)
 
 class CompareModelsRequest(BaseModel):
     source: SourceEnum = Field(default=SourceEnum.stocktwits)
+    method: MethodEnum = Field(default=MethodEnum.http)
     symbol: str = Field(default="BTC.X")
-    limit: int = Field(default=50, ge=10, le=200)
+    limit: int = Field(default=50, ge=10, le=300)
 
 
 # ===================== CRYPTO CONFIG =====================
@@ -90,15 +106,27 @@ CRYPTO_CONFIG = {
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     prices = prices_client.get_multiple_prices(["bitcoin", "ethereum", "solana"])
+    limits = get_scraping_limits()
     return templates.TemplateResponse("index.html", {
         "request": request,
-        "prices": prices
+        "prices": prices,
+        "limits": limits
     })
 
 
 @app.get("/compare", response_class=HTMLResponse)
 async def compare_page(request: Request):
     return templates.TemplateResponse("compare.html", {"request": request})
+
+
+# ===================== HELPER =====================
+
+def get_scraping_limits():
+    """Retourne toutes les limites de scraping"""
+    return {
+        "reddit": get_reddit_limits(),
+        "stocktwits": get_stocktwits_limits()
+    }
 
 
 # ===================== API ENDPOINTS =====================
@@ -108,25 +136,55 @@ async def health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 
+@app.get("/limits", tags=["Info"])
+async def get_limits():
+    """
+    Limites de scraping par plateforme et methode
+    
+    Pour eviter les bans:
+    - Reddit HTTP: max 1000 posts
+    - Reddit Selenium: max 200 posts
+    - StockTwits Selenium: max 300 posts (seule methode disponible)
+    """
+    return {
+        "reddit": {
+            "http": {"max": 1000, "description": "API JSON rapide"},
+            "selenium": {"max": 200, "description": "Navigateur lent mais robuste"}
+        },
+        "stocktwits": {
+            "selenium": {"max": 300, "description": "Seule methode (Cloudflare)"},
+            "http": {"max": 0, "description": "Non disponible (Cloudflare)"}
+        }
+    }
+
+
 @app.post("/scrape", tags=["Scraping"])
 async def scrape(req: ScrapeRequest):
     """
     Scrape posts depuis Reddit ou StockTwits
-
-    - **reddit**: max 1000 posts, rapide (HTTP)
-    - **stocktwits**: max 300 posts, labels Bullish/Bearish inclus! (Selenium ~10-30s)
+    
+    **Reddit:**
+    - http: max 1000 posts, rapide (~1-5s)
+    - selenium: max 200 posts, lent (~10-30s)
+    
+    **StockTwits:**
+    - selenium uniquement: max 300 posts (~10-30s)
+    - Labels humains Bullish/Bearish inclus!
     """
     start = time.time()
-
+    
     if req.source == SourceEnum.stocktwits:
+        # StockTwits = Selenium uniquement
         posts = scrape_stocktwits(req.symbol, limit=req.limit)
         source_name = "StockTwits"
+        method_used = "selenium"
     else:
-        posts = scrape_reddit(req.symbol, limit=req.limit)
+        posts = scrape_reddit(req.symbol, limit=req.limit, method=req.method.value)
         source_name = "Reddit"
-
+        method_used = req.method.value
+    
     elapsed = round(time.time() - start, 2)
-
+    
     # Stats labels humains (StockTwits)
     human_labels = {"Bullish": 0, "Bearish": 0, "None": 0}
     for p in posts:
@@ -135,9 +193,10 @@ async def scrape(req: ScrapeRequest):
             human_labels[label] = human_labels.get(label, 0) + 1
         else:
             human_labels["None"] += 1
-
+    
     return {
         "source": source_name,
+        "method": method_used,
         "symbol": req.symbol,
         "posts_count": len(posts),
         "time_seconds": elapsed,
@@ -146,11 +205,68 @@ async def scrape(req: ScrapeRequest):
     }
 
 
+@app.post("/scrape/both", tags=["Scraping"])
+async def scrape_both(
+    subreddit: str = "Bitcoin",
+    stocktwits_symbol: str = "BTC.X",
+    method_reddit: MethodEnum = MethodEnum.http,
+    limit_reddit: int = 50,
+    limit_stocktwits: int = 50
+):
+    """
+    Scrape Reddit ET StockTwits en une seule requete
+    
+    **Limites:**
+    - Reddit HTTP: max 1000
+    - Reddit Selenium: max 200
+    - StockTwits: max 300 (Selenium)
+    """
+    start = time.time()
+    results = {}
+    
+    # Reddit
+    reddit_start = time.time()
+    reddit_posts = scrape_reddit(subreddit, limit=limit_reddit, method=method_reddit.value)
+    results["reddit"] = {
+        "posts_count": len(reddit_posts),
+        "method": method_reddit.value,
+        "time_seconds": round(time.time() - reddit_start, 2),
+        "posts": reddit_posts[:5]
+    }
+    
+    # StockTwits
+    st_start = time.time()
+    st_posts = scrape_stocktwits(stocktwits_symbol, limit=limit_stocktwits)
+    
+    # Stats labels humains
+    human_labels = {"Bullish": 0, "Bearish": 0, "None": 0}
+    for p in st_posts:
+        label = p.get("human_label")
+        if label:
+            human_labels[label] = human_labels.get(label, 0) + 1
+        else:
+            human_labels["None"] += 1
+    
+    results["stocktwits"] = {
+        "posts_count": len(st_posts),
+        "method": "selenium",
+        "time_seconds": round(time.time() - st_start, 2),
+        "human_labels": human_labels,
+        "posts": st_posts[:5]
+    }
+    
+    return {
+        "total_time": round(time.time() - start, 2),
+        "total_posts": len(reddit_posts) + len(st_posts),
+        "results": results
+    }
+
+
 @app.post("/sentiment", tags=["Sentiment"])
 async def analyze_sentiment(texts: list[str], model: ModelEnum = ModelEnum.finbert):
     """
     Analyse sentiment de textes
-
+    
     - **finbert**: Modele finance generale
     - **cryptobert**: Modele specifique crypto (3.2M posts)
     """
@@ -172,28 +288,28 @@ async def get_price(crypto: str):
 async def full_analysis(req: AnalyzeRequest):
     """
     Pipeline complet: Scraping + Sentiment + Prix
-
-    Combinaisons possibles:
-    - Reddit + FinBERT
-    - Reddit + CryptoBERT
-    - StockTwits + FinBERT (avec validation accuracy)
-    - StockTwits + CryptoBERT (avec validation accuracy)
+    
+    **Methodes:**
+    - Reddit: http (rapide, max 1000) ou selenium (lent, max 200)
+    - StockTwits: selenium uniquement (max 300)
     """
     start = time.time()
-
+    
     # Scraping
     if req.source == SourceEnum.stocktwits:
         posts = scrape_stocktwits(req.symbol, limit=req.limit)
         source_name = "StockTwits"
+        method_used = "selenium"
     else:
-        posts = scrape_reddit(req.symbol, limit=req.limit)
+        posts = scrape_reddit(req.symbol, limit=req.limit, method=req.method.value)
         source_name = "Reddit"
-
+        method_used = req.method.value
+    
     scrape_time = time.time() - start
-
+    
     # Sentiment
     analyzer = get_analyzer(req.model.value)
-
+    
     results = []
     for p in posts:
         text = clean_text(p["title"] + " " + p.get("text", ""))
@@ -205,17 +321,17 @@ async def full_analysis(req: AnalyzeRequest):
                 "predicted_label": sent["label"],
                 "score": sent["score"]
             })
-
+    
     sentiment_time = time.time() - start - scrape_time
-
+    
     # Stats
     scores = [r["score"] for r in results]
     avg_score = sum(scores) / len(scores) if scores else 0
-
+    
     labels = {"Bullish": 0, "Bearish": 0, "Neutral": 0}
     for r in results:
         labels[r["predicted_label"]] += 1
-
+    
     # Accuracy si StockTwits
     accuracy = None
     if req.source == SourceEnum.stocktwits:
@@ -223,12 +339,13 @@ async def full_analysis(req: AnalyzeRequest):
         if labeled:
             correct = sum(1 for r in labeled if r["predicted_label"] == r["human_label"])
             accuracy = round(correct / len(labeled) * 100, 1)
-
+    
     # Prix
     price_data = prices_client.get_price(req.crypto_id)
-
+    
     return {
         "source": source_name,
+        "method": method_used,
         "model": req.model.value,
         "crypto": req.crypto_id,
         "symbol": req.symbol,
@@ -247,34 +364,108 @@ async def full_analysis(req: AnalyzeRequest):
     }
 
 
+@app.post("/analyze/both", tags=["Analyse Complete"])
+async def analyze_both_sources(req: AnalyzeBothRequest):
+    """
+    Analyse Reddit ET StockTwits pour une crypto
+    
+    Permet de comparer les sentiments entre les deux plateformes.
+    """
+    start = time.time()
+    analyzer = get_analyzer(req.model.value)
+    
+    results = {}
+    
+    # Reddit
+    reddit_posts = scrape_reddit(req.subreddit, limit=req.limit_reddit, method=req.method.value)
+    reddit_scores = []
+    reddit_labels = {"Bullish": 0, "Bearish": 0, "Neutral": 0}
+    
+    for p in reddit_posts:
+        text = clean_text(p["title"])
+        if text:
+            s = analyzer.analyze(text)
+            reddit_scores.append(s["score"])
+            reddit_labels[s["label"]] += 1
+    
+    results["reddit"] = {
+        "posts": len(reddit_scores),
+        "method": req.method.value,
+        "avg_sentiment": round(sum(reddit_scores) / len(reddit_scores), 4) if reddit_scores else 0,
+        "distribution": reddit_labels
+    }
+    
+    # StockTwits
+    st_posts = scrape_stocktwits(req.stocktwits_symbol, limit=req.limit_stocktwits)
+    st_scores = []
+    st_labels = {"Bullish": 0, "Bearish": 0, "Neutral": 0}
+    accuracy = None
+    correct = 0
+    labeled_count = 0
+    
+    for p in st_posts:
+        text = clean_text(p["title"])
+        if text:
+            s = analyzer.analyze(text)
+            st_scores.append(s["score"])
+            st_labels[s["label"]] += 1
+            
+            if p.get("human_label"):
+                labeled_count += 1
+                if s["label"] == p["human_label"]:
+                    correct += 1
+    
+    if labeled_count > 0:
+        accuracy = round(correct / labeled_count * 100, 1)
+    
+    results["stocktwits"] = {
+        "posts": len(st_scores),
+        "method": "selenium",
+        "avg_sentiment": round(sum(st_scores) / len(st_scores), 4) if st_scores else 0,
+        "distribution": st_labels,
+        "accuracy_vs_human": accuracy
+    }
+    
+    # Prix
+    price_data = prices_client.get_price(req.crypto_id)
+    
+    return {
+        "crypto": req.crypto_id,
+        "model": req.model.value,
+        "total_time": round(time.time() - start, 2),
+        "price": price_data,
+        "results": results
+    }
+
+
 @app.post("/compare/models", tags=["Comparaison"])
 async def compare_models(req: CompareModelsRequest):
     """
     Compare FinBERT vs CryptoBERT sur les memes posts
-
+    
     Utilise StockTwits pour avoir les labels humains et calculer l'accuracy!
     """
     start = time.time()
-
+    
     # Scraping
     if req.source == SourceEnum.stocktwits:
         posts = scrape_stocktwits(req.symbol, limit=req.limit)
     else:
-        posts = scrape_reddit(req.symbol, limit=req.limit)
-
+        posts = scrape_reddit(req.symbol, limit=req.limit, method=req.method.value)
+    
     # Analyseurs
     finbert = get_analyzer("finbert")
     cryptobert = get_analyzer("cryptobert")
-
+    
     results = []
     for p in posts:
         text = clean_text(p["title"])
         if not text or len(text) < 10:
             continue
-
+        
         fin = finbert.analyze(text)
         cry = cryptobert.analyze(text)
-
+        
         results.append({
             "text": text[:50],
             "human_label": p.get("human_label"),
@@ -283,11 +474,11 @@ async def compare_models(req: CompareModelsRequest):
             "cryptobert_label": cry["label"],
             "cryptobert_score": cry["score"],
         })
-
+    
     # Stats
     fin_scores = [r["finbert_score"] for r in results]
     cry_scores = [r["cryptobert_score"] for r in results]
-
+    
     # Accuracy si labels disponibles
     labeled = [r for r in results if r["human_label"]]
     accuracy = {}
@@ -300,9 +491,10 @@ async def compare_models(req: CompareModelsRequest):
             "labeled_posts": len(labeled),
             "winner": "cryptobert" if cry_correct > fin_correct else "finbert" if fin_correct > cry_correct else "tie"
         }
-
+    
     return {
         "source": req.source.value,
+        "method": req.method.value if req.source == SourceEnum.reddit else "selenium",
         "symbol": req.symbol,
         "posts_analyzed": len(results),
         "time_seconds": round(time.time() - start, 2),
@@ -318,31 +510,37 @@ async def compare_models(req: CompareModelsRequest):
 
 
 @app.post("/compare/sources", tags=["Comparaison"])
-async def compare_sources(crypto_id: str = "bitcoin", limit: int = 50, model: ModelEnum = ModelEnum.finbert):
+async def compare_sources(
+    crypto_id: str = "bitcoin",
+    limit: int = 50,
+    model: ModelEnum = ModelEnum.finbert,
+    method_reddit: MethodEnum = MethodEnum.http
+):
     """
     Compare Reddit vs StockTwits pour la meme crypto
     """
     config = CRYPTO_CONFIG.get(crypto_id, {"sub": "Bitcoin", "stocktwits": "BTC.X"})
     analyzer = get_analyzer(model.value)
-
+    
     results = {}
-
+    
     # Reddit
     start = time.time()
-    reddit_posts = scrape_reddit(config["sub"], limit=limit)
+    reddit_posts = scrape_reddit(config["sub"], limit=limit, method=method_reddit.value)
     reddit_scores = []
     for p in reddit_posts:
         text = clean_text(p["title"])
         if text:
             s = analyzer.analyze(text)
             reddit_scores.append(s["score"])
-
+    
     results["reddit"] = {
         "posts": len(reddit_scores),
+        "method": method_reddit.value,
         "time": round(time.time() - start, 2),
         "avg_sentiment": round(sum(reddit_scores) / len(reddit_scores), 4) if reddit_scores else 0
     }
-
+    
     # StockTwits
     start = time.time()
     st_posts = scrape_stocktwits(config["stocktwits"], limit=limit)
@@ -352,13 +550,14 @@ async def compare_sources(crypto_id: str = "bitcoin", limit: int = 50, model: Mo
         if text:
             s = analyzer.analyze(text)
             st_scores.append(s["score"])
-
+    
     results["stocktwits"] = {
         "posts": len(st_scores),
+        "method": "selenium",
         "time": round(time.time() - start, 2),
         "avg_sentiment": round(sum(st_scores) / len(st_scores), 4) if st_scores else 0
     }
-
+    
     return {
         "crypto": crypto_id,
         "model": model.value,

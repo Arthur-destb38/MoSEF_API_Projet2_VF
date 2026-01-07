@@ -1,7 +1,6 @@
 """
-Crypto Sentiment - Streamlit
+Crypto Sentiment Dashboard
 Projet MoSEF 2024-2025
-Architecture modulaire
 """
 
 import streamlit as st
@@ -13,50 +12,219 @@ from datetime import datetime
 import sys
 import os
 
-# Add app to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Import modules
-from app.scrapers import scrape_reddit, scrape_stocktwits
+from app.scrapers import scrape_reddit, scrape_stocktwits, get_reddit_limits, get_stocktwits_limits
 from app.nlp import load_finbert, load_cryptobert, analyze_finbert, analyze_cryptobert
 from app.utils import clean_text
-from app.prices import get_historical_prices
+from app.prices import get_historical_prices, CryptoPrices
 
-# Econometrie
 try:
-    from econometrics import run_full_analysis
+    from econometrics import run_full_analysis, run_demo_analysis
     ECONO_OK = True
 except ImportError:
     ECONO_OK = False
 
+# ============ PAGE CONFIG ============
+
+st.set_page_config(
+    page_title="Crypto Sentiment",
+    page_icon="◈",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# ============ CUSTOM CSS ============
+
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+    
+    .stApp {
+        background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #0f0f1a 100%);
+    }
+    
+    #MainMenu, footer, header {visibility: hidden;}
+    .block-container {padding-top: 2rem;}
+    
+    html, body, [class*="css"] {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    
+    h1, h2, h3 {
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+        font-weight: 700 !important;
+    }
+    
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #12121a 0%, #1a1a2e 100%);
+        border-right: 1px solid rgba(99, 102, 241, 0.2);
+    }
+    
+    section[data-testid="stSidebar"] .stRadio label {
+        color: #a5b4fc !important;
+    }
+    
+    .metric-card {
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.05) 100%);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        border-radius: 16px;
+        padding: 24px;
+        margin: 8px 0;
+        backdrop-filter: blur(10px);
+    }
+    
+    .metric-value {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 2.5rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #818cf8 0%, #c084fc 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin: 0;
+    }
+    
+    .metric-label {
+        color: #94a3b8;
+        font-size: 0.875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-bottom: 8px;
+    }
+    
+    .metric-delta {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.875rem;
+        margin-top: 8px;
+    }
+    
+    .delta-positive { color: #4ade80; }
+    .delta-negative { color: #f87171; }
+    
+    .dashboard-title {
+        font-size: 2.5rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 50%, #a5b4fc 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0.5rem;
+    }
+    
+    .dashboard-subtitle {
+        color: #64748b;
+        font-size: 1rem;
+        margin-bottom: 2rem;
+    }
+    
+    .stButton > button {
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        color: white;
+        border: none;
+        border-radius: 12px;
+        padding: 12px 24px;
+        font-weight: 600;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+    }
+    
+    .stSelectbox > div > div,
+    .stMultiSelect > div > div {
+        background: rgba(30, 30, 46, 0.8);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        border-radius: 12px;
+    }
+    
+    .stRadio > div {
+        background: rgba(30, 30, 46, 0.5);
+        border-radius: 12px;
+        padding: 12px;
+    }
+    
+    .stProgress > div > div {
+        background: linear-gradient(90deg, #6366f1, #8b5cf6, #a855f7);
+        border-radius: 10px;
+    }
+    
+    .info-box {
+        background: rgba(99, 102, 241, 0.1);
+        border-left: 4px solid #6366f1;
+        padding: 16px 20px;
+        border-radius: 0 12px 12px 0;
+        margin: 16px 0;
+    }
+    
+    .warning-box {
+        background: rgba(251, 191, 36, 0.1);
+        border-left: 4px solid #fbbf24;
+        padding: 16px 20px;
+        border-radius: 0 12px 12px 0;
+        margin: 16px 0;
+    }
+    
+    .success-box {
+        background: rgba(74, 222, 128, 0.1);
+        border-left: 4px solid #4ade80;
+        padding: 16px 20px;
+        border-radius: 0 12px 12px 0;
+        margin: 16px 0;
+    }
+    
+    hr {
+        border: none;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.3), transparent);
+        margin: 2rem 0;
+    }
+    
+    .stTabs [data-baseweb="tab-list"] {
+        background: rgba(30, 30, 46, 0.5);
+        border-radius: 12px;
+        padding: 4px;
+        gap: 4px;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 8px;
+        color: #94a3b8;
+        font-weight: 500;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        color: white;
+    }
+    
+    .stSlider > div > div > div {
+        background: #6366f1;
+    }
+    
+    .viewerBadge_container__1QSob {display: none;}
+</style>
+""", unsafe_allow_html=True)
 
 # ============ CONFIG ============
 
-st.set_page_config(page_title="Crypto Sentiment", layout="wide")
-
 CRYPTO_LIST = {
-    "Bitcoin (BTC)": {"id": "bitcoin", "sub": "Bitcoin", "stocktwits": "BTC.X"},
-    "Ethereum (ETH)": {"id": "ethereum", "sub": "ethereum", "stocktwits": "ETH.X"},
-    "Solana (SOL)": {"id": "solana", "sub": "solana", "stocktwits": "SOL.X"},
-    "Cardano (ADA)": {"id": "cardano", "sub": "cardano", "stocktwits": "ADA.X"},
-    "Dogecoin (DOGE)": {"id": "dogecoin", "sub": "dogecoin", "stocktwits": "DOGE.X"},
-    "Ripple (XRP)": {"id": "ripple", "sub": "xrp", "stocktwits": "XRP.X"},
-    "Polkadot (DOT)": {"id": "polkadot", "sub": "polkadot", "stocktwits": "DOT.X"},
-    "Chainlink (LINK)": {"id": "chainlink", "sub": "chainlink", "stocktwits": "LINK.X"},
-    "Litecoin (LTC)": {"id": "litecoin", "sub": "litecoin", "stocktwits": "LTC.X"},
-    "Avalanche (AVAX)": {"id": "avalanche-2", "sub": "avax", "stocktwits": "AVAX.X"},
+    "Bitcoin": {"id": "bitcoin", "sub": "Bitcoin", "stocktwits": "BTC.X", "icon": "₿"},
+    "Ethereum": {"id": "ethereum", "sub": "ethereum", "stocktwits": "ETH.X", "icon": "Ξ"},
+    "Solana": {"id": "solana", "sub": "solana", "stocktwits": "SOL.X", "icon": "◎"},
+    "Cardano": {"id": "cardano", "sub": "cardano", "stocktwits": "ADA.X", "icon": "₳"},
+    "Dogecoin": {"id": "dogecoin", "sub": "dogecoin", "stocktwits": "DOGE.X", "icon": "Ð"},
+    "XRP": {"id": "ripple", "sub": "xrp", "stocktwits": "XRP.X", "icon": "✕"},
 }
 
 LIMITS = {
-    "Reddit": 1000,
-    "StockTwits": 300  # Selenium = plus lent
+    "Reddit": {"HTTP": get_reddit_limits()["http"], "Selenium": get_reddit_limits()["selenium"]},
+    "StockTwits": {"Selenium": get_stocktwits_limits()["selenium"]}
 }
 
-MODELS = ["FinBERT", "CryptoBERT"]
-SOURCES = ["Reddit", "StockTwits"]
-
-
-# ============ CACHE MODELS ============
+# ============ CACHE ============
 
 @st.cache_resource
 def get_finbert():
@@ -66,471 +234,652 @@ def get_finbert():
 def get_cryptobert():
     return load_cryptobert()
 
+@st.cache_data(ttl=300)
+def get_prices():
+    client = CryptoPrices()
+    return client.get_multiple_prices(["bitcoin", "ethereum", "solana", "cardano", "dogecoin"])
 
-def get_model(model_name: str):
-    """Retourne tokenizer, model, analyze_fn"""
-    if model_name == "FinBERT":
+def get_model(name):
+    if name == "FinBERT":
         tok, mod = get_finbert()
         return tok, mod, analyze_finbert
     else:
         tok, mod = get_cryptobert()
         return tok, mod, analyze_cryptobert
 
-
-def scrape(source: str, crypto_config: dict, limit: int):
-    """Scrape selon la source"""
+def scrape_data(source, config, limit, method):
     if source == "Reddit":
-        return scrape_reddit(crypto_config['sub'], limit)
+        return scrape_reddit(config['sub'], limit, method=method.lower())
     else:
-        return scrape_stocktwits(crypto_config['stocktwits'], limit)
+        return scrape_stocktwits(config['stocktwits'], limit)
 
+# ============ COMPONENTS ============
 
-# ============ SIDEBAR COMMON ============
+def render_metric_card(label, value, delta=None, delta_type="neutral"):
+    delta_html = ""
+    if delta:
+        delta_class = "delta-positive" if delta_type == "positive" else "delta-negative" if delta_type == "negative" else ""
+        delta_html = f'<div class="metric-delta {delta_class}">{delta}</div>'
+    
+    st.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-label">{label}</div>
+        <div class="metric-value">{value}</div>
+        {delta_html}
+    </div>
+    """, unsafe_allow_html=True)
 
-def sidebar_params(default_limit=100, show_model=True, show_source=True):
-    """Sidebar commune pour parametres"""
-    params = {}
+def render_header():
+    st.markdown("""
+    <div style="text-align: center; padding: 1rem 0 2rem 0;">
+        <h1 class="dashboard-title">Crypto Sentiment Dashboard</h1>
+        <p class="dashboard-subtitle">Analyse en temps réel du sentiment crypto • Reddit & StockTwits • FinBERT & CryptoBERT</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    with st.sidebar:
-        st.header("Parametres")
+# ============ PAGES ============
 
-        if show_source:
-            params['source'] = st.radio("Source", SOURCES)
-            max_limit = LIMITS[params['source']]
-            if params['source'] == "StockTwits":
-                st.caption("Labels humains Bullish/Bearish!")
-                st.warning("⏱️ StockTwits utilise Selenium (~10-30s)")
+def page_dashboard():
+    render_header()
+    
+    try:
+        prices = get_prices()
+        if prices:
+            cols = st.columns(len(prices))
+            for i, (name, data) in enumerate(prices.items()):
+                with cols[i]:
+                    change = data.get('change_24h', 0)
+                    delta_type = "positive" if change > 0 else "negative"
+                    render_metric_card(name.upper(), f"${data['price']:,.0f}", f"{change:+.2f}%", delta_type)
+    except:
+        st.info("Prix non disponibles")
+    
+    st.markdown("---")
+    
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        st.markdown("### Configuration")
+        
+        crypto = st.selectbox("Crypto", list(CRYPTO_LIST.keys()), key="dash_crypto")
+        config = CRYPTO_LIST[crypto]
+        
+        source = st.radio("Source", ["Reddit", "StockTwits"], horizontal=True, key="dash_source")
+        
+        if source == "Reddit":
+            method = st.radio("Méthode", ["HTTP", "Selenium"], horizontal=True, key="dash_method")
+            max_limit = LIMITS["Reddit"][method]
         else:
-            max_limit = 1000
+            method = "Selenium"
+            max_limit = LIMITS["StockTwits"]["Selenium"]
+            st.markdown("""
+            <div class="success-box">
+                <strong>Labels humains disponibles</strong><br>
+                <small>StockTwits fournit des labels Bullish/Bearish</small>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        model = st.radio("Modèle NLP", ["FinBERT", "CryptoBERT"], horizontal=True, key="dash_model")
+        limit = st.slider("Nombre de posts", 20, min(300, max_limit), 50, key="dash_limit")
+        
+        st.markdown(f"""
+        <div class="info-box">
+            <strong>Limite max:</strong> {max_limit} posts<br>
+            <small>Pour éviter les bans</small>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        analyze = st.button("Analyser", use_container_width=True, key="dash_analyze")
+    
+    with col2:
+        if analyze:
+            run_analysis(crypto, config, source, method, model, limit)
+        else:
+            st.markdown("""
+            <div style="
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 400px;
+                background: rgba(30, 30, 46, 0.3);
+                border-radius: 16px;
+                border: 1px dashed rgba(99, 102, 241, 0.3);
+            ">
+                <div style="font-size: 3rem; margin-bottom: 1rem; color: #6366f1;">◈</div>
+                <div style="color: #64748b; font-size: 1.1rem;">Configure et lance une analyse</div>
+                <div style="color: #475569; font-size: 0.9rem; margin-top: 0.5rem;">Les résultats apparaîtront ici</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-        if show_model:
-            params['model'] = st.radio("Modele NLP", MODELS)
 
-        params['crypto_name'] = st.selectbox("Crypto", list(CRYPTO_LIST.keys()))
-        params['config'] = CRYPTO_LIST[params['crypto_name']]
-
-        params['limit'] = st.slider("Posts", 20, min(max_limit, 300), default_limit)
-
-        st.divider()
-
-    return params
-
-
-# ============ PAGE ANALYSE ============
-
-def page_analyse():
-    st.title("Analyse Sentiment")
-    st.caption("Source + Modele au choix")
-
-    params = sidebar_params()
-    run = st.sidebar.button("Analyser", type="primary", use_container_width=True)
-
-    if run:
-        # Scraping
-        with st.spinner(f"Scraping {params['source']}..."):
-            posts = scrape(params['source'], params['config'], params['limit'])
-
-        if not posts:
-            st.error("Aucun post")
-            return
-
-        st.success(f"{len(posts)} posts")
-
-        # Chargement modele
-        with st.spinner(f"Chargement {params['model']}..."):
-            tokenizer, model, analyze_fn = get_model(params['model'])
-
-        # Analyse
+def run_analysis(crypto, config, source, method, model, limit):
+    with st.spinner(f"Scraping {source}..."):
+        posts = scrape_data(source, config, limit, method)
+    
+    if not posts:
+        st.error("Aucun post récupéré")
+        return
+    
+    with st.spinner(f"Analyse avec {model}..."):
+        tokenizer, mod, analyze_fn = get_model(model)
+        
         results = []
         progress = st.progress(0)
-
+        
         for i, post in enumerate(posts):
             text = clean_text(post["title"] + " " + post.get("text", ""))
             if text and len(text) > 5:
-                sent = analyze_fn(text, tokenizer, model)
+                sent = analyze_fn(text, tokenizer, mod)
             else:
                 sent = {"score": 0, "label": "Neutral"}
-
+            
             results.append({
                 **post,
-                "clean_text": text,
                 "sentiment_score": sent["score"],
                 "sentiment_label": sent["label"]
             })
             progress.progress((i + 1) / len(posts))
-
-        # Session state
-        st.session_state['last_results'] = results
-        st.session_state['last_crypto_id'] = params['config']['id']
-        st.session_state['last_crypto_name'] = params['crypto_name']
-
-        # Stats
-        scores = [r["sentiment_score"] for r in results]
-        labels = {"Bullish": 0, "Bearish": 0, "Neutral": 0}
-        for r in results:
-            labels[r["sentiment_label"]] += 1
-
-        # Metriques
-        st.subheader("Resultats")
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Posts", len(results))
-        c2.metric("Sentiment", f"{np.mean(scores):+.3f}")
-        c3.metric("Std", f"{np.std(scores):.3f}")
-        c4.metric("Bullish", labels['Bullish'])
-        c5.metric("Bearish", labels['Bearish'])
-
-        # Accuracy si StockTwits
-        if params['source'] == "StockTwits":
-            labeled = [r for r in results if r.get("human_label")]
-            if labeled:
-                correct = sum(1 for r in labeled if r["sentiment_label"] == r["human_label"])
-                acc = correct / len(labeled) * 100
-                st.success(f"Accuracy vs labels humains: {acc:.1f}% ({correct}/{len(labeled)})")
-
-        # Graphiques
-        col1, col2 = st.columns(2)
-        with col1:
-            fig = px.pie(values=list(labels.values()), names=list(labels.keys()),
-                        color_discrete_sequence=["#28a745", "#dc3545", "#6c757d"])
-            st.plotly_chart(fig, use_container_width=True)
-
-        with col2:
-            fig = px.histogram(x=scores, nbins=30)
-            fig.add_vline(x=0, line_dash="dash")
-            st.plotly_chart(fig, use_container_width=True)
-
-        # Tableau
-        df = pd.DataFrame([{
-            "Texte": r["title"][:50],
-            "Score": r["sentiment_score"],
-            "Prediction": r["sentiment_label"],
-            "Label humain": r.get("human_label", "-"),
-        } for r in results])
-        st.dataframe(df, use_container_width=True, height=300)
-        st.download_button("CSV", df.to_csv(index=False), "sentiment.csv")
+    
+    st.session_state['results'] = results
+    st.session_state['crypto'] = crypto
+    st.session_state['config'] = config
+    
+    display_results(results, source, model)
 
 
-# ============ PAGE COMPARAISON ============
+def display_results(results, source, model):
+    scores = [r["sentiment_score"] for r in results]
+    labels = {"Bullish": 0, "Bearish": 0, "Neutral": 0}
+    for r in results:
+        labels[r["sentiment_label"]] += 1
+    
+    avg_score = np.mean(scores)
+    
+    st.markdown("### Résultats")
+    
+    cols = st.columns(4)
+    with cols[0]:
+        render_metric_card("Posts analysés", len(results))
+    with cols[1]:
+        delta_type = "positive" if avg_score > 0 else "negative"
+        render_metric_card("Sentiment moyen", f"{avg_score:+.3f}", delta_type=delta_type)
+    with cols[2]:
+        render_metric_card("Bullish", labels['Bullish'], f"{labels['Bullish']/len(results)*100:.0f}%", "positive")
+    with cols[3]:
+        render_metric_card("Bearish", labels['Bearish'], f"{labels['Bearish']/len(results)*100:.0f}%", "negative")
+    
+    labeled = [r for r in results if r.get("human_label")]
+    if labeled:
+        correct = sum(1 for r in labeled if r["sentiment_label"] == r["human_label"])
+        acc = correct / len(labeled) * 100
+        st.markdown(f"""
+        <div class="success-box">
+            <strong>Accuracy vs labels humains: {acc:.1f}%</strong><br>
+            <small>{correct}/{len(labeled)} prédictions correctes</small>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        fig = go.Figure(data=[go.Pie(
+            labels=list(labels.keys()),
+            values=list(labels.values()),
+            hole=0.6,
+            marker=dict(colors=['#4ade80', '#f87171', '#64748b']),
+            textinfo='label+percent',
+            textfont=dict(size=14, color='white')
+        )])
+        fig.update_layout(
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font=dict(color='white'),
+            showlegend=False,
+            margin=dict(t=20, b=20, l=20, r=20),
+            height=300
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        fig = go.Figure(data=[go.Histogram(
+            x=scores,
+            nbinsx=30,
+            marker=dict(color='rgba(99, 102, 241, 0.7)', line=dict(color='#818cf8', width=1))
+        )])
+        fig.add_vline(x=0, line_dash="dash", line_color="#64748b")
+        fig.add_vline(x=avg_score, line_dash="solid", line_color="#a855f7", line_width=2)
+        fig.update_layout(
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font=dict(color='white'),
+            xaxis=dict(gridcolor='rgba(255,255,255,0.1)', title="Score"),
+            yaxis=dict(gridcolor='rgba(255,255,255,0.1)', title="Count"),
+            margin=dict(t=20, b=40, l=40, r=20),
+            height=300
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    st.markdown("### Détail des posts")
+    
+    df = pd.DataFrame([{
+        "Texte": r["title"][:60] + "..." if len(r["title"]) > 60 else r["title"],
+        "Score": round(r["sentiment_score"], 3),
+        "Prédiction": r["sentiment_label"],
+        "Label": r.get("human_label", "-")
+    } for r in results])
+    
+    st.dataframe(df, use_container_width=True, height=300)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button("Télécharger CSV", df.to_csv(index=False), "sentiment.csv", use_container_width=True)
+
 
 def page_compare():
-    st.title("Comparaison: FinBERT vs CryptoBERT")
-    st.caption("Memes posts, 2 modeles")
-
-    with st.sidebar:
-        st.header("Parametres")
-        source = st.radio("Source", SOURCES)
-        if source == "StockTwits":
-            st.success("Labels humains pour validation!")
-
-        crypto_name = st.selectbox("Crypto", list(CRYPTO_LIST.keys()))
-        config = CRYPTO_LIST[crypto_name]
-
-        limit = st.slider("Posts", 30, 200, 50)
-        st.divider()
-        run = st.button("Comparer", type="primary", use_container_width=True)
-
-    if run:
-        # Scraping
-        with st.spinner(f"Scraping {source}..."):
-            posts = scrape(source, config, limit)
-
-        if not posts:
-            st.error("Aucun post")
-            return
-
-        st.success(f"{len(posts)} posts")
-
-        # Charger les 2 modeles
-        with st.spinner("Chargement modeles..."):
-            fin_tok, fin_mod, _ = get_model("FinBERT")
-            cry_tok, cry_mod, _ = get_model("CryptoBERT")
-
-        # Analyse
-        results = []
-        progress = st.progress(0)
-
-        for i, post in enumerate(posts):
-            text = clean_text(post["title"])
-            if not text or len(text) < 5:
-                continue
-
-            fin = analyze_finbert(text, fin_tok, fin_mod)
-            cry = analyze_cryptobert(text, cry_tok, cry_mod)
-
-            results.append({
-                "text": text[:40],
-                "human_label": post.get("human_label"),
-                "finbert_score": fin["score"],
-                "finbert_label": fin["label"],
-                "cryptobert_score": cry["score"],
-                "cryptobert_label": cry["label"],
-            })
-            progress.progress((i + 1) / len(posts))
-
-        if not results:
-            st.error("Pas de donnees")
-            return
-
-        df = pd.DataFrame(results)
-
-        # Scores moyens
-        st.subheader("Scores moyens")
-        c1, c2 = st.columns(2)
-        c1.metric("FinBERT", f"{df['finbert_score'].mean():+.3f}")
-        c2.metric("CryptoBERT", f"{df['cryptobert_score'].mean():+.3f}")
-
-        # Accuracy
-        labeled = df[df['human_label'].notna()]
-        if len(labeled) > 0:
-            st.subheader("Accuracy vs labels humains")
-
-            fin_correct = (labeled['finbert_label'] == labeled['human_label']).sum()
-            cry_correct = (labeled['cryptobert_label'] == labeled['human_label']).sum()
-
-            fin_acc = fin_correct / len(labeled) * 100
-            cry_acc = cry_correct / len(labeled) * 100
-
-            c1, c2 = st.columns(2)
-            c1.metric("FinBERT", f"{fin_acc:.1f}%", f"{fin_correct}/{len(labeled)}")
-            c2.metric("CryptoBERT", f"{cry_acc:.1f}%", f"{cry_correct}/{len(labeled)}")
-
-            if cry_acc > fin_acc:
-                st.success(f"CryptoBERT gagne! (+{cry_acc - fin_acc:.1f}%)")
-            elif fin_acc > cry_acc:
-                st.info(f"FinBERT gagne! (+{fin_acc - cry_acc:.1f}%)")
-
-        # Distribution
-        col1, col2 = st.columns(2)
-        with col1:
-            counts = df['finbert_label'].value_counts()
-            fig = px.pie(values=counts.values, names=counts.index, title="FinBERT")
+    render_header()
+    st.markdown("### Comparaison FinBERT vs CryptoBERT")
+    
+    col1, col2 = st.columns([1, 3])
+    
+    with col1:
+        crypto = st.selectbox("Crypto", list(CRYPTO_LIST.keys()), key="cmp_crypto")
+        config = CRYPTO_LIST[crypto]
+        
+        source = st.radio("Source", ["Reddit", "StockTwits"], key="cmp_source")
+        
+        if source == "Reddit":
+            method = st.radio("Méthode", ["HTTP", "Selenium"], key="cmp_method")
+            max_limit = LIMITS["Reddit"][method]
+        else:
+            method = "Selenium"
+            max_limit = LIMITS["StockTwits"]["Selenium"]
+        
+        limit = st.slider("Posts", 30, min(150, max_limit), 50, key="cmp_limit")
+        run = st.button("Comparer", use_container_width=True, key="cmp_run")
+    
+    with col2:
+        if run:
+            with st.spinner("Scraping..."):
+                posts = scrape_data(source, config, limit, method)
+            
+            if not posts:
+                st.error("Aucun post")
+                return
+            
+            with st.spinner("Analyse..."):
+                fin_tok, fin_mod, _ = get_model("FinBERT")
+                cry_tok, cry_mod, _ = get_model("CryptoBERT")
+                
+                results = []
+                progress = st.progress(0)
+                
+                for i, post in enumerate(posts):
+                    text = clean_text(post["title"])
+                    if not text:
+                        continue
+                    
+                    fin = analyze_finbert(text, fin_tok, fin_mod)
+                    cry = analyze_cryptobert(text, cry_tok, cry_mod)
+                    
+                    results.append({
+                        "text": text[:50],
+                        "human_label": post.get("human_label"),
+                        "finbert_score": fin["score"],
+                        "finbert_label": fin["label"],
+                        "cryptobert_score": cry["score"],
+                        "cryptobert_label": cry["label"]
+                    })
+                    progress.progress((i + 1) / len(posts))
+            
+            df = pd.DataFrame(results)
+            
+            cols = st.columns(2)
+            with cols[0]:
+                render_metric_card("FinBERT", f"{df['finbert_score'].mean():+.3f}")
+            with cols[1]:
+                render_metric_card("CryptoBERT", f"{df['cryptobert_score'].mean():+.3f}")
+            
+            labeled = df[df['human_label'].notna()]
+            if len(labeled) > 0:
+                fin_acc = (labeled['finbert_label'] == labeled['human_label']).mean() * 100
+                cry_acc = (labeled['cryptobert_label'] == labeled['human_label']).mean() * 100
+                
+                st.markdown("### Accuracy vs labels humains")
+                cols = st.columns(2)
+                with cols[0]:
+                    render_metric_card("FinBERT", f"{fin_acc:.1f}%")
+                with cols[1]:
+                    render_metric_card("CryptoBERT", f"{cry_acc:.1f}%")
+                
+                winner = "CryptoBERT" if cry_acc > fin_acc else "FinBERT"
+                diff = abs(cry_acc - fin_acc)
+                st.markdown(f"""
+                <div class="success-box">
+                    <strong>{winner} gagne!</strong> (+{diff:.1f}%)
+                </div>
+                """, unsafe_allow_html=True)
+            
+            fig = px.scatter(df, x='finbert_score', y='cryptobert_score', color_discrete_sequence=['#8b5cf6'])
+            fig.add_hline(y=0, line_dash="dash", line_color="#64748b")
+            fig.add_vline(x=0, line_dash="dash", line_color="#64748b")
+            fig.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='white'),
+                xaxis=dict(gridcolor='rgba(255,255,255,0.1)', title="FinBERT"),
+                yaxis=dict(gridcolor='rgba(255,255,255,0.1)', title="CryptoBERT"),
+                height=400
+            )
             st.plotly_chart(fig, use_container_width=True)
-        with col2:
-            counts = df['cryptobert_label'].value_counts()
-            fig = px.pie(values=counts.values, names=counts.index, title="CryptoBERT")
-            st.plotly_chart(fig, use_container_width=True)
 
-        # Scatter
-        fig = px.scatter(df, x='finbert_score', y='cryptobert_score')
-        fig.add_hline(y=0, line_dash="dash", line_color="gray")
-        fig.add_vline(x=0, line_dash="dash", line_color="gray")
-        st.plotly_chart(fig, use_container_width=True)
-
-        st.dataframe(df, use_container_width=True)
-        st.download_button("CSV", df.to_csv(index=False), "comparison.csv")
-
-
-# ============ PAGE MULTI ============
 
 def page_multi():
-    st.title("Multi-Crypto")
-    st.caption("Comparer plusieurs cryptos")
+    render_header()
+    st.markdown("### Analyse Multi-Crypto")
+    
+    col1, col2 = st.columns([1, 3])
+    
+    with col1:
+        selected = st.multiselect("Cryptos", list(CRYPTO_LIST.keys()),
+                                  default=["Bitcoin", "Ethereum", "Solana"], key="multi_crypto")
+        
+        source = st.radio("Source", ["Reddit", "StockTwits"], key="multi_source")
+        
+        if source == "Reddit":
+            method = st.radio("Méthode", ["HTTP", "Selenium"], key="multi_method")
+        else:
+            method = "Selenium"
+        
+        model = st.radio("Modèle", ["FinBERT", "CryptoBERT"], key="multi_model")
+        limit = st.slider("Posts/crypto", 20, 100, 40, key="multi_limit")
+        run = st.button("Analyser", use_container_width=True, key="multi_run")
+    
+    with col2:
+        if run and selected:
+            tokenizer, mod, analyze_fn = get_model(model)
+            
+            all_results = []
+            progress = st.progress(0)
+            
+            for i, name in enumerate(selected):
+                config = CRYPTO_LIST[name]
+                posts = scrape_data(source, config, limit, method)
+                
+                if posts:
+                    scores = []
+                    labels = {"Bullish": 0, "Bearish": 0, "Neutral": 0}
+                    
+                    for post in posts:
+                        text = clean_text(post["title"])
+                        if text:
+                            s = analyze_fn(text, tokenizer, mod)
+                            scores.append(s["score"])
+                            labels[s["label"]] += 1
+                    
+                    all_results.append({
+                        "Crypto": name,
+                        "Posts": len(scores),
+                        "Sentiment": np.mean(scores) if scores else 0,
+                        "Bullish": labels["Bullish"],
+                        "Bearish": labels["Bearish"],
+                        "Neutral": labels["Neutral"]
+                    })
+                
+                progress.progress((i + 1) / len(selected))
+            
+            df = pd.DataFrame(all_results)
+            
+            fig = go.Figure(data=[go.Bar(
+                x=df["Crypto"],
+                y=df["Sentiment"],
+                marker=dict(
+                    color=df["Sentiment"],
+                    colorscale=[[0, '#f87171'], [0.5, '#64748b'], [1, '#4ade80']],
+                    cmin=-0.5,
+                    cmax=0.5
+                ),
+                text=[f"{s:+.3f}" for s in df["Sentiment"]],
+                textposition='outside',
+                textfont=dict(color='white')
+            )])
+            fig.add_hline(y=0, line_dash="dash", line_color="#64748b")
+            fig.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='white'),
+                xaxis=dict(gridcolor='rgba(255,255,255,0.1)'),
+                yaxis=dict(gridcolor='rgba(255,255,255,0.1)', title="Sentiment"),
+                height=400,
+                margin=dict(t=40)
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            st.dataframe(df, use_container_width=True)
 
-    with st.sidebar:
-        st.header("Parametres")
-        source = st.radio("Source", SOURCES)
-        model_name = st.radio("Modele", MODELS)
-
-        selected = st.multiselect(
-            "Cryptos",
-            list(CRYPTO_LIST.keys()),
-            default=["Bitcoin (BTC)", "Ethereum (ETH)", "Solana (SOL)"]
-        )
-
-        limit = st.slider("Posts/crypto", 20, 100, 50)
-        st.divider()
-        run = st.button("Analyser", type="primary", use_container_width=True)
-
-    if run and selected:
-        tokenizer, model, analyze_fn = get_model(model_name)
-
-        all_results = []
-        progress = st.progress(0)
-
-        for i, name in enumerate(selected):
-            config = CRYPTO_LIST[name]
-
-            posts = scrape(source, config, limit)
-
-            if posts:
-                scores = []
-                labels = {"Bullish": 0, "Bearish": 0, "Neutral": 0}
-
-                for post in posts:
-                    text = clean_text(post["title"])
-                    if text:
-                        s = analyze_fn(text, tokenizer, model)
-                        scores.append(s["score"])
-                        labels[s["label"]] += 1
-
-                all_results.append({
-                    "Crypto": name,
-                    "Posts": len(scores),
-                    "Sentiment": round(np.mean(scores), 4) if scores else 0,
-                    "Bullish": labels["Bullish"],
-                    "Bearish": labels["Bearish"],
-                    "Neutral": labels["Neutral"]
-                })
-
-            progress.progress((i + 1) / len(selected))
-
-        df = pd.DataFrame(all_results)
-        st.dataframe(df, use_container_width=True)
-
-        fig = px.bar(df, x="Crypto", y="Sentiment", color="Sentiment",
-                     color_continuous_scale=["red", "gray", "green"])
-        fig.add_hline(y=0, line_dash="dash")
-        st.plotly_chart(fig, use_container_width=True)
-
-        st.download_button("CSV", df.to_csv(index=False), "multi.csv")
-
-
-# ============ PAGE ECONOMETRIE ============
 
 def page_econometrie():
-    st.title("Econometrie")
-    st.caption("ADF, Granger, VAR")
-
+    render_header()
+    st.markdown("### Analyse Économétrique")
+    
     if not ECONO_OK:
-        st.error("Module econometrics.py non trouve")
+        st.error("Module econometrics.py non disponible")
         return
-
-    if 'last_results' not in st.session_state:
-        st.warning("Lance d'abord une analyse sur la page Analyse")
-        return
-
-    results = st.session_state['last_results']
-    crypto_id = st.session_state.get('last_crypto_id', 'bitcoin')
-    crypto_name = st.session_state.get('last_crypto_name', 'Bitcoin')
-
-    st.info(f"{len(results)} posts ({crypto_name})")
-
-    with st.sidebar:
-        st.header("Parametres")
+    
+    col1, col2 = st.columns([1, 3])
+    
+    with col1:
+        # Mode selection
+        mode = st.radio("Mode", ["Demo", "Données réelles"], key="eco_mode")
+        
+        if mode == "Demo":
+            st.markdown("""
+            <div class="info-box">
+                <strong>Mode Demo</strong><br>
+                <small>Données sentiment simulées sur 60 jours pour illustrer l'analyse</small>
+            </div>
+            """, unsafe_allow_html=True)
+            crypto = st.selectbox("Crypto", list(CRYPTO_LIST.keys()), key="eco_crypto")
+            config = CRYPTO_LIST[crypto]
+        else:
+            if 'results' not in st.session_state:
+                st.markdown("""
+                <div class="warning-box">
+                    <strong>Aucune donnée</strong><br>
+                    Lance d'abord une analyse sur le Dashboard
+                </div>
+                """, unsafe_allow_html=True)
+                crypto = None
+                config = None
+            else:
+                results = st.session_state['results']
+                crypto = st.session_state.get('crypto', 'Bitcoin')
+                config = st.session_state.get('config', CRYPTO_LIST['Bitcoin'])
+                st.info(f"{len(results)} posts ({crypto})")
+        
         days = st.slider("Jours historiques", 30, 90, 60)
         max_lag = st.slider("Lag max", 3, 10, 5)
-        st.divider()
-        run = st.button("Lancer", type="primary", use_container_width=True)
-
-    if run:
-        posts = [{"title": r.get("title", ""), "created_utc": r.get("created_utc")} for r in results]
-        sent = [{"score": r.get("sentiment_score", 0), "label": r.get("sentiment_label", "Neutral")} for r in results]
-
-        with st.spinner("Analyse..."):
-            output = run_full_analysis(posts, sent, crypto_id, days, max_lag)
-
-        if output["status"] == "error":
-            st.error(output.get("error"))
-            return
-
-        info = output["data_info"]
-
-        st.subheader("Donnees")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Jours sentiment", info["jours_sentiment"])
-        c2.metric("Jours prix", info["jours_prix"])
-        c3.metric("Jours merged", info["jours_merged"])
-
-        st.divider()
-
-        # ADF
-        st.subheader("Stationnarite (ADF)")
-        adf = output["adf_tests"]
-        c1, c2 = st.columns(2)
-        with c1:
-            s = adf.get("sentiment", {})
-            if s.get("stationary"):
-                st.success(f"Sentiment: Stationnaire (p={s.get('pvalue')})")
+        run = st.button("Analyser", use_container_width=True)
+    
+    with col2:
+        if run:
+            if mode == "Demo":
+                with st.spinner("Analyse économétrique (demo)..."):
+                    output = run_demo_analysis(config['id'], days, max_lag)
             else:
-                st.warning(f"Sentiment: Non stationnaire (p={s.get('pvalue')})")
-        with c2:
-            r = adf.get("returns", {})
-            if r.get("stationary"):
-                st.success(f"Returns: Stationnaire (p={r.get('pvalue')})")
+                if 'results' not in st.session_state:
+                    st.error("Pas de données. Lance une analyse sur le Dashboard d'abord.")
+                    return
+                
+                results = st.session_state['results']
+                posts = [{"title": r.get("title", ""), "created_utc": r.get("created_utc")} for r in results]
+                sent = [{"score": r.get("sentiment_score", 0), "label": r.get("sentiment_label", "Neutral")} for r in results]
+                
+                with st.spinner("Analyse économétrique..."):
+                    output = run_full_analysis(posts, sent, config['id'], days, max_lag)
+            
+            if output["status"] == "error":
+                st.error(output.get("error"))
+                return
+            
+            # Badge mode demo
+            if output.get("mode") == "demo":
+                st.markdown("""
+                <div style="background: rgba(139, 92, 246, 0.2); border: 1px solid #8b5cf6; padding: 10px; border-radius: 8px; margin-bottom: 16px; text-align: center;">
+                    <strong style="color: #c4b5fd;">MODE DEMO</strong> - Données sentiment simulées
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # Info données
+            info = output.get("data_info", {})
+            st.markdown(f"**Période:** {info.get('date_debut', 'N/A')} → {info.get('date_fin', 'N/A')} ({info.get('jours_merged', 0)} jours)")
+            
+            st.markdown("#### Tests de Stationnarité (ADF)")
+            adf = output["adf_tests"]
+            cols = st.columns(2)
+            with cols[0]:
+                s = adf.get("sentiment", {})
+                status = "Stationnaire" if s.get("stationary") else "Non stationnaire"
+                render_metric_card("Sentiment", status, f"p={s.get('pvalue', 'N/A')}")
+            with cols[1]:
+                r = adf.get("returns", {})
+                status = "Stationnaire" if r.get("stationary") else "Non stationnaire"
+                render_metric_card("Returns", status, f"p={r.get('pvalue', 'N/A')}")
+            
+            st.markdown("#### Causalité de Granger")
+            granger = output.get("granger", {})
+            if "error" not in granger:
+                cols = st.columns(2)
+                with cols[0]:
+                    s2r = granger.get("sentiment_to_returns", {})
+                    status = "Significatif" if s2r.get("significant") else "Non significatif"
+                    render_metric_card("Sentiment → Prix", status, f"lag={s2r.get('best_lag', 'N/A')}")
+                with cols[1]:
+                    r2s = granger.get("returns_to_sentiment", {})
+                    status = "Significatif" if r2s.get("significant") else "Non significatif"
+                    render_metric_card("Prix → Sentiment", status, f"lag={r2s.get('best_lag', 'N/A')}")
             else:
-                st.warning(f"Returns: Non stationnaire (p={r.get('pvalue')})")
-
-        st.divider()
-
-        # Granger
-        st.subheader("Granger")
-        granger = output["granger"]
-        if "error" not in granger:
-            c1, c2 = st.columns(2)
-            with c1:
-                s2r = granger.get("sentiment_to_returns", {})
-                if s2r.get("significant"):
-                    st.success(f"Sentiment → Returns: Significatif (lag={s2r.get('best_lag')})")
+                st.warning(f"Granger: {granger.get('error')}")
+            
+            # Cross-correlation
+            cross = output.get("cross_corr", {})
+            if cross.get("best_lag") is not None:
+                st.markdown("#### Corrélation croisée")
+                best_lag = cross.get("best_lag")
+                best_corr = cross.get("best_correlation")
+                if best_lag > 0:
+                    interp = f"Sentiment précède les prix de {best_lag} jour(s)"
+                elif best_lag < 0:
+                    interp = f"Prix précèdent le sentiment de {-best_lag} jour(s)"
                 else:
-                    st.info("Sentiment → Returns: Non significatif")
-            with c2:
-                r2s = granger.get("returns_to_sentiment", {})
-                if r2s.get("significant"):
-                    st.success(f"Returns → Sentiment: Significatif (lag={r2s.get('best_lag')})")
-                else:
-                    st.info("Returns → Sentiment: Non significatif")
+                    interp = "Relation contemporaine"
+                render_metric_card("Meilleure corrélation", f"r = {best_corr}", interp)
+            
+            # Graphique sentiment vs returns
+            if "merged_data" in output:
+                merged = output["merged_data"]
+                st.markdown("#### Évolution Sentiment vs Returns")
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=merged['date'], y=merged['sentiment_mean'],
+                    name='Sentiment', line=dict(color='#8b5cf6', width=2)
+                ))
+                fig.add_trace(go.Scatter(
+                    x=merged['date'], y=merged['log_return'] * 10,
+                    name='Returns (x10)', line=dict(color='#4ade80', width=2)
+                ))
+                fig.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='white'),
+                    xaxis=dict(gridcolor='rgba(255,255,255,0.1)'),
+                    yaxis=dict(gridcolor='rgba(255,255,255,0.1)'),
+                    height=300,
+                    margin=dict(t=20, b=40, l=40, r=20),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02)
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            
+            st.markdown("#### Conclusion")
+            conclusion_text = output.get("conclusion", "Analyse terminée").replace("\n", "<br>")
+            st.markdown(f"""
+            <div class="info-box">
+                {conclusion_text}
+            </div>
+            """, unsafe_allow_html=True)
 
-        st.divider()
-        st.subheader("Conclusion")
-        st.text(output.get("conclusion", ""))
-
-
-# ============ PAGE METHODO ============
 
 def page_methodo():
-    st.title("Methodologie")
-
-    st.markdown("""
-    ## Sources de donnees
+    render_header()
+    st.markdown("### Méthodologie")
     
-    | Source | API | Max posts | Labels humains |
-    |--------|-----|-----------|----------------|
-    | Reddit | old.reddit.com/r/X/new.json | 1000 | Non |
-    | StockTwits | api.stocktwits.com | 500 | Oui (Bullish/Bearish) |
+    tabs = st.tabs(["Sources", "Modèles", "Limites", "Références"])
     
-    ## Modeles NLP
+    with tabs[0]:
+        st.markdown("""
+        | Source | Méthode | Max posts | Vitesse | Labels |
+        |--------|---------|-----------|---------|--------|
+        | Reddit | HTTP | 1000 | ~1-5s | Non |
+        | Reddit | Selenium | 200 | ~10-30s | Non |
+        | StockTwits | Selenium | 300 | ~10-30s | Oui (Bullish/Bearish) |
+        
+        **Note:** StockTwits utilise Cloudflare, seul Selenium fonctionne.
+        """)
     
-    | Modele | Base | Entraine sur | Labels |
-    |--------|------|--------------|--------|
-    | FinBERT | BERT | News financieres | pos/neg/neu |
-    | CryptoBERT | BERTweet | 3.2M posts crypto | bullish/bearish/neutral |
+    with tabs[1]:
+        st.markdown("""
+        | Modèle | Entraîné sur | Labels |
+        |--------|--------------|--------|
+        | **FinBERT** | News financières | Positive/Negative/Neutral |
+        | **CryptoBERT** | 3.2M posts crypto | Bullish/Bearish/Neutral |
+        
+        CryptoBERT: StockTwits (1.8M) + Telegram (664K) + Reddit (172K) + Twitter (496K)
+        """)
     
-    CryptoBERT entraine sur: StockTwits (1.8M), Telegram (664K), Reddit (172K), Twitter (496K)
+    with tabs[2]:
+        st.markdown("""
+        **Pour éviter les bans:**
+        - Reddit HTTP: max 1000 posts, 1 req/s
+        - Reddit Selenium: max 200 posts
+        - StockTwits: max 300 posts
+        """)
     
-    ## Pipeline
-    
-    1. **Scraping** - Reddit ou StockTwits avec pagination
-    2. **Nettoyage** - URLs, mentions, caracteres speciaux
-    3. **Sentiment** - FinBERT ou CryptoBERT
-    4. **Econometrie** - ADF, Granger, VAR
-    
-    ## Validation
-    
-    StockTwits fournit des labels humains (Bullish/Bearish) → calcul accuracy automatique
-    
-    ## References
-    
-    - ProsusAI/finbert
-    - ElKulako/cryptobert (IEEE Intelligent Systems 38(4))
-    - Kraaijeveld & De Smedt (2020)
-    """)
+    with tabs[3]:
+        st.markdown("""
+        - **FinBERT:** ProsusAI/finbert
+        - **CryptoBERT:** ElKulako/cryptobert (IEEE Intelligent Systems 38(4), 2023)
+        - Kraaijeveld & De Smedt (2020) - Predictive power of Twitter sentiment
+        """)
 
 
 # ============ MAIN ============
 
 def main():
-    page = st.sidebar.radio(
-        "Navigation",
-        ["Analyse", "Comparaison", "Multi-crypto", "Econometrie", "Methodologie"]
-    )
-
-    if page == "Analyse":
-        page_analyse()
-    elif page == "Comparaison":
+    with st.sidebar:
+        st.markdown("""
+        <div style="text-align: center; padding: 1rem 0;">
+            <div style="font-size: 2rem; color: #818cf8;">◈</div>
+            <div style="font-weight: 700; color: #e0e7ff;">Crypto Sentiment</div>
+            <div style="font-size: 0.75rem; color: #64748b;">MoSEF 2024-2025</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        page = st.radio(
+            "Navigation",
+            ["Dashboard", "Comparaison", "Multi-crypto", "Économétrie", "Méthodologie"],
+            label_visibility="collapsed"
+        )
+    
+    if "Dashboard" in page:
+        page_dashboard()
+    elif "Comparaison" in page:
         page_compare()
-    elif page == "Multi-crypto":
+    elif "Multi" in page:
         page_multi()
-    elif page == "Econometrie":
+    elif "Économétrie" in page:
         page_econometrie()
     else:
         page_methodo()

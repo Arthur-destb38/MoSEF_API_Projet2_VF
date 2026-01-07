@@ -1,121 +1,149 @@
-# 🪙 Crypto Sentiment Analysis
+# Crypto Sentiment Analysis
 
-**Projet MoSEF 2024-2025** — Analyse de sentiment des cryptomonnaies à partir des réseaux sociaux.
+> Projet de Master MoSEF 2024-2025 — Université Paris 1 Panthéon-Sorbonne
 
----
+## À propos du projet
 
-## 📋 Description
+Ce projet explore la relation entre le **sentiment des réseaux sociaux** et les **prix des cryptomonnaies**. L'idée est simple : les discussions sur Reddit et StockTwits reflètent-elles l'humeur du marché crypto ? Et surtout, peut-on utiliser ce sentiment pour anticiper les mouvements de prix ?
 
-Ce projet analyse le sentiment des discussions autour des cryptomonnaies en combinant :
+Pour répondre à ces questions, nous avons construit un pipeline complet qui :
 
-- **Sources de données** : Reddit et StockTwits
-- **Modèles NLP** : FinBERT (finance générale) et CryptoBERT (spécialisé crypto)
-- **Analyse économétrique** : Tests ADF, causalité de Granger, modèles VAR
-
----
-
-## 🏗️ Architecture
-
-```
-├── app/
-│   ├── main.py              # API FastAPI
-│   ├── nlp.py               # Modèles FinBERT & CryptoBERT
-│   ├── prices.py            # Prix via CoinGecko
-│   ├── utils.py             # Nettoyage de texte
-│   └── scrapers/
-│       ├── http_scraper.py      # Scraper HTTP générique
-│       ├── reddit_scraper.py    # Scraper Reddit
-│       ├── stocktwits_scraper.py # Scraper StockTwits
-│       └── selenium_scraper.py  # Scraper Selenium
-├── streamlit_app.py         # Interface Streamlit
-├── econometrics.py          # Analyse économétrique
-├── templates/               # Templates HTML pour FastAPI
-└── pyproject.toml           # Dépendances Poetry
-```
+1. **Collecte** les posts en temps réel depuis Reddit et StockTwits
+2. **Analyse** le sentiment avec deux modèles de NLP spécialisés (FinBERT et CryptoBERT)
+3. **Compare** les performances des modèles grâce aux labels humains de StockTwits
+4. **Étudie** la relation sentiment-prix avec des outils économétriques (Granger, VAR)
 
 ---
 
-## ⚙️ Installation
+## Pourquoi ce projet ?
+
+Le marché crypto est particulièrement sensible au sentiment. Un tweet d'Elon Musk peut faire bouger le Bitcoin de plusieurs pourcents en quelques minutes. Mais au-delà des célébrités, qu'en est-il du sentiment "de base" des investisseurs particuliers ?
+
+Notre hypothèse : le sentiment agrégé des discussions sur les réseaux sociaux contient de l'information sur les mouvements futurs des prix.
+
+---
+
+## Comment ça marche ?
+
+### Les sources de données
+
+**Reddit** — On scrape les subreddits dédiés à chaque crypto (r/Bitcoin, r/ethereum, etc.) via l'API JSON publique. C'est rapide et on peut récupérer jusqu'à 1000 posts d'un coup.
+
+**StockTwits** — C'est le Twitter de la finance. L'avantage majeur ? Les utilisateurs tagguent eux-mêmes leurs messages comme "Bullish" 🐂 ou "Bearish" 🐻. Ces labels humains nous permettent de valider nos modèles de sentiment !
+
+### Les modèles de sentiment
+
+On utilise deux modèles pré-entraînés basés sur BERT :
+
+**FinBERT** — Développé par Prosus AI, ce modèle a été entraîné sur des news financières. Il classifie les textes en Positive / Negative / Neutral. C'est notre baseline "finance générale".
+
+**CryptoBERT** — Le modèle star du projet ! Développé par ElKulako, il a été entraîné spécifiquement sur 3.2 millions de posts crypto (StockTwits, Reddit, Twitter, Telegram). Il comprend le jargon crypto : "to the moon", "HODL", "diamond hands"... Les labels sont Bullish / Bearish / Neutral.
+
+### L'analyse économétrique
+
+Une fois le sentiment calculé, on le confronte aux prix réels via :
+
+- **Test ADF** : On vérifie que nos séries sont stationnaires (sinon les résultats sont biaisés)
+- **Causalité de Granger** : Le sentiment d'aujourd'hui prédit-il les rendements de demain ?
+- **Modèle VAR** : Pour capturer les interactions dynamiques entre sentiment et prix
+
+---
+
+## Installation
 
 ### Prérequis
 
-- Python 3.10+
-- Poetry (gestionnaire de dépendances)
+- Python 3.10 ou plus récent
+- Poetry (gestionnaire de dépendances Python)
 
 ### Étapes
 
 ```bash
-# 1. Cloner le projet
-git clone <repo-url>
-cd Projet_API-test
+# Cloner le repo
+git clone https://github.com/Arthur-destb38/Projet_API.git
+cd Projet_API
 
-# 2. Installer Poetry (si nécessaire)
+# Installer Poetry si nécessaire
 pip install poetry
 
-# 3. Installer les dépendances
+# Installer toutes les dépendances
 poetry install
 ```
 
-> ⚠️ **Note** : L'installation peut prendre quelques minutes (PyTorch, Transformers).
+La première installation prend quelques minutes car elle télécharge PyTorch et les Transformers (~2 Go).
 
 ---
 
-## 🚀 Lancement
+## Lancement
 
-### Option 1 : Interface Streamlit (recommandé)
+### Interface Streamlit (recommandé)
+
+C'est l'interface principale du projet, avec des visualisations interactives :
 
 ```bash
 poetry run streamlit run streamlit_app.py
 ```
 
-Ouvre automatiquement `http://localhost:8501`
+L'application s'ouvre automatiquement sur `http://localhost:8501`
 
-### Option 2 : API FastAPI
+### API FastAPI
+
+Pour ceux qui préfèrent une API REST ou veulent intégrer le projet dans un autre système :
 
 ```bash
 poetry run uvicorn app.main:app --reload
 ```
 
-- API : `http://127.0.0.1:8000`
+- Interface web : `http://127.0.0.1:8000`
 - Documentation Swagger : `http://127.0.0.1:8000/docs`
 
 ---
 
-## 📊 Fonctionnalités
+## Fonctionnalités
 
-### Interface Streamlit
+### Page "Analyse"
 
-| Page | Description |
-|------|-------------|
-| **Analyse** | Analyse de sentiment sur une crypto (choix source + modèle) |
-| **Comparaison** | Compare FinBERT vs CryptoBERT sur les mêmes posts |
-| **Multi-crypto** | Analyse plusieurs cryptos simultanément |
-| **Économétrie** | Tests de stationnarité (ADF), causalité de Granger, VAR |
-| **Méthodologie** | Documentation technique du projet |
+Analyse le sentiment d'une crypto en particulier. Tu choisis :
+- La **source** (Reddit ou StockTwits)
+- Le **modèle** (FinBERT ou CryptoBERT)
+- La **crypto** (Bitcoin, Ethereum, Solana...)
+- Le **nombre de posts** à analyser
 
-### API Endpoints
+Résultats : score moyen, distribution Bullish/Bearish/Neutral, histogramme des scores, et tableau détaillé des posts.
 
-| Endpoint | Méthode | Description |
-|----------|---------|-------------|
-| `/scrape` | POST | Scrape des posts Reddit ou StockTwits |
-| `/sentiment` | POST | Analyse de sentiment sur une liste de textes |
-| `/analyze` | POST | Pipeline complet : scraping + sentiment + prix |
-| `/compare/models` | POST | Compare FinBERT vs CryptoBERT |
-| `/compare/sources` | POST | Compare Reddit vs StockTwits |
-| `/prices/{crypto}` | GET | Prix actuel via CoinGecko |
+### Page "Comparaison"
+
+Compare FinBERT vs CryptoBERT sur les mêmes posts. Utilise StockTwits pour avoir les labels humains et calculer l'accuracy de chaque modèle !
+
+Spoiler : CryptoBERT gagne généralement de 10-15% sur les données crypto 😉
+
+### Page "Multi-crypto"
+
+Analyse plusieurs cryptos en parallèle pour voir laquelle a le meilleur sentiment. Pratique pour avoir une vue d'ensemble du marché.
+
+### Page "Économétrie"
+
+Tests statistiques pour étudier la relation sentiment ↔ prix :
+- Stationnarité des séries (ADF)
+- Causalité de Granger dans les deux sens
+- Conclusions automatiques
+
+### Page "Méthodologie"
+
+Documentation technique : sources de données, modèles, pipeline, références académiques.
 
 ---
 
-## 🪙 Cryptos supportées
+## Cryptos supportées
 
-| Crypto | Reddit | StockTwits |
-|--------|--------|------------|
+| Crypto | Subreddit | Symbole StockTwits |
+|--------|-----------|-------------------|
 | Bitcoin | r/Bitcoin | BTC.X |
 | Ethereum | r/ethereum | ETH.X |
 | Solana | r/solana | SOL.X |
 | Cardano | r/cardano | ADA.X |
 | Dogecoin | r/dogecoin | DOGE.X |
-| Ripple (XRP) | r/xrp | XRP.X |
+| Ripple | r/xrp | XRP.X |
 | Polkadot | r/polkadot | DOT.X |
 | Chainlink | r/chainlink | LINK.X |
 | Litecoin | r/litecoin | LTC.X |
@@ -123,77 +151,80 @@ poetry run uvicorn app.main:app --reload
 
 ---
 
-## 🤖 Modèles NLP
+## Architecture du code
 
-### FinBERT
-- **Base** : BERT
-- **Entraînement** : News financières
-- **Labels** : Positive / Negative / Neutral
-- **Source** : [ProsusAI/finbert](https://huggingface.co/ProsusAI/finbert)
-
-### CryptoBERT
-- **Base** : BERTweet
-- **Entraînement** : 3.2M posts crypto
-  - StockTwits : 1.8M
-  - Telegram : 664K
-  - Reddit : 172K
-  - Twitter : 496K
-- **Labels** : Bullish / Bearish / Neutral
-- **Source** : [ElKulako/cryptobert](https://huggingface.co/ElKulako/cryptobert)
-
----
-
-## 📈 Sources de données
-
-### Reddit
-- **Méthode** : API JSON (`old.reddit.com/r/{sub}/new.json`)
-- **Limite** : ~1000 posts
-- **Avantage** : Rapide, pas de rate limiting agressif
-
-### StockTwits
-- **Méthode** : Selenium (scraping dynamique)
-- **Limite** : ~300 posts
-- **Avantage** : Labels humains Bullish/Bearish pour validation !
-- **Temps** : ~10-30 secondes (navigateur headless)
-
----
-
-## 📉 Analyse économétrique
-
-Le module `econometrics.py` permet d'analyser la relation sentiment ↔ prix :
-
-1. **Test ADF** : Vérifie la stationnarité des séries
-2. **Granger** : Teste si le sentiment prédit les rendements (et vice-versa)
-3. **VAR** : Modèle vectoriel autorégressif
-
----
-
-## 🔧 Configuration
-
-### Variables d'environnement (optionnel)
-
-```bash
-# Pas de clé API requise pour Reddit et StockTwits
-# CoinGecko utilise l'API publique gratuite
+```
+Projet_API/
+├── app/
+│   ├── main.py                    # API FastAPI avec tous les endpoints
+│   ├── nlp.py                     # Chargement et inference FinBERT/CryptoBERT
+│   ├── prices.py                  # Récupération des prix via CoinGecko
+│   ├── utils.py                   # Nettoyage de texte (URLs, mentions, emojis)
+│   └── scrapers/
+│       ├── http_scraper.py        # Classe de base pour le scraping HTTP
+│       ├── reddit_scraper.py      # Scraping Reddit via l'API JSON
+│       ├── stocktwits_scraper.py  # Scraping StockTwits
+│       └── selenium_scraper.py    # Scraping dynamique avec Selenium
+│
+├── streamlit_app.py               # Interface utilisateur Streamlit
+├── econometrics.py                # Tests ADF, Granger, VAR
+├── templates/                     # Pages HTML pour l'interface FastAPI
+│   ├── index.html
+│   └── compare.html
+│
+├── pyproject.toml                 # Dépendances Poetry
+└── poetry.lock                    # Versions exactes des packages
 ```
 
 ---
 
-## 📚 Références
+## Points techniques intéressants
 
-- Kraaijeveld, O., & De Smedt, J. (2020). *The predictive power of public Twitter sentiment for forecasting cryptocurrency prices*
-- ElKulako/cryptobert - IEEE Intelligent Systems 38(4)
-- ProsusAI/finbert
+### Scraping Reddit sans API officielle
+
+Reddit a rendu son API payante en 2023. On contourne le problème en utilisant l'endpoint JSON de old.reddit.com (`/r/{sub}/new.json`) qui reste accessible. On gère la pagination avec le paramètre `after` pour récupérer plus de posts.
+
+### Labels humains StockTwits
+
+C'est la feature killer pour la validation ! Les utilisateurs StockTwits peuvent (optionnellement) indiquer s'ils sont Bullish ou Bearish sur un post. Ça nous donne un ground truth pour mesurer l'accuracy de nos modèles.
+
+### Gestion des modèles lourds
+
+FinBERT et CryptoBERT font plusieurs centaines de Mo chacun. On utilise le cache de Streamlit (`@st.cache_resource`) pour ne les charger qu'une seule fois en mémoire.
+
+### Nettoyage de texte
+
+Les posts Reddit et StockTwits sont bruités : URLs, mentions @user, emojis, caractères spéciaux... Le module `utils.py` nettoie tout ça avant l'analyse de sentiment.
 
 ---
 
-## 👥 Auteurs
+## Limites et améliorations possibles
 
-Étudiants MoSEF 2024-2025
+- **Données historiques** : On analyse le sentiment en temps réel, mais pour l'économétrie on aurait besoin de séries plus longues
+- **Rate limiting** : Reddit peut bloquer si on scrape trop vite
+- **Biais de sélection** : Les utilisateurs qui postent ne sont pas représentatifs de tous les investisseurs
+- **Latence** : StockTwits utilise Selenium (navigateur headless), c'est lent (~10-30s)
 
 ---
 
-## 📝 Licence
+## Références
+
+- **CryptoBERT** : ElKulako/cryptobert — *"CryptoBERT: A Pre-trained Language Model for Cryptocurrency Sentiment Analysis"*, IEEE Intelligent Systems 38(4), 2023
+- **FinBERT** : ProsusAI/finbert — Modèle de sentiment financier basé sur BERT
+- Kraaijeveld, O., & De Smedt, J. (2020). *"The predictive power of public Twitter sentiment for forecasting cryptocurrency prices"*, Journal of Computational Finance
+
+---
+
+## Auteurs
+
+Projet réalisé dans le cadre du Master MoSEF (Modélisation Statistique Économique et Financière), Université Paris 1 Panthéon-Sorbonne.
+
+- Arthur Destribats
+- Niama [Nom]
+- [Autres membres]
+
+---
+
+## Licence
 
 Projet académique — Usage éducatif uniquement.
-

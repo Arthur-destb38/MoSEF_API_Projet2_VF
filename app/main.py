@@ -12,7 +12,7 @@ from enum import Enum
 from datetime import datetime
 import time
 
-from app.scrapers import scrape_reddit, scrape_stocktwits, scrape_twitter, get_reddit_limits, get_stocktwits_limits, get_twitter_limits
+from app.scrapers import scrape_reddit, scrape_stocktwits, scrape_twitter, scrape_tiktok, get_reddit_limits, get_stocktwits_limits, get_twitter_limits, get_tiktok_limits
 from app.scrapers import scrape_telegram_simple, scrape_telegram_paginated, TELEGRAM_CHANNELS, get_telegram_limits
 from app.nlp import SentimentAnalyzer
 from app.prices import CryptoPrices
@@ -51,6 +51,7 @@ class SourceEnum(str, Enum):
     stocktwits = "stocktwits"
     telegram = "telegram"
     twitter = "twitter"
+    tiktok = "tiktok"
 
 class MethodEnum(str, Enum):
     http = "http"
@@ -131,6 +132,7 @@ def get_scraping_limits():
         "reddit": get_reddit_limits(),
         "stocktwits": get_stocktwits_limits(),
         "twitter": get_twitter_limits(),
+        "tiktok": get_tiktok_limits(),
         "telegram": get_telegram_limits()
     }
 
@@ -216,6 +218,10 @@ async def get_limits():
             "selenium": {"max": 100, "description": "Comportement humain anti-detection"},
             "http": {"max": 0, "description": "Non disponible (login requis)"}
         },
+        "tiktok": {
+            "selenium": {"max": 50, "description": "Expérimental - anti-bot très strict"},
+            "http": {"max": 0, "description": "Non disponible"}
+        },
         "telegram": {
             "simple": {"max": 30, "description": "Scraping basique rapide"},
             "paginated": {"max": 500, "description": "Avec pagination (plus lent)"}
@@ -251,6 +257,11 @@ async def scrape(req: ScrapeRequest):
         # Twitter = Selenium avec comportement humain
         posts = scrape_twitter(req.symbol, limit=req.limit)
         source_name = "Twitter"
+        method_used = "selenium"
+    elif req.source == SourceEnum.tiktok:
+        # TikTok = Selenium (expérimental)
+        posts = scrape_tiktok(req.symbol, limit=req.limit)
+        source_name = "TikTok"
         method_used = "selenium"
     elif req.source == SourceEnum.telegram:
         # Telegram - utiliser pagination si > 30 posts

@@ -1476,7 +1476,7 @@ def main():
         
         page = st.radio(
             "Navigation",
-            ["🔍 Scraping", "📊 Dashboard", "⚖️ Comparaison", "🪙 Multi-crypto", "📈 Économétrie", "💾 Données", "📖 Méthodologie"],
+            ["Scraping", "Dashboard", "Comparaison", "Multi-crypto", "Économétrie", "Données", "Méthodologie"],
             label_visibility="collapsed"
         )
     

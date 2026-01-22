@@ -1354,13 +1354,22 @@ def page_scraping():
         
         if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
             with st.spinner("Scraping Telegram en cours..."):
-                if limit > 30:
-                    posts = scrape_telegram_paginated(channel, limit)
-                else:
-                    posts = scrape_telegram_simple(channel, limit)
-                for p in posts:
-                    p['title'] = p.get('text', '')
-            st.session_state.scrape_results = {"posts": posts, "source": "telegram", "crypto": channel}
+                try:
+                    if limit > 30:
+                        posts = scrape_telegram_paginated(channel, limit)
+                    else:
+                        posts = scrape_telegram_simple(channel, limit)
+                    
+                    if not posts:
+                        st.warning(f"⚠️ Aucun message récupéré pour @{channel}")
+                        st.info("**Note :** Seuls les canaux publics fonctionnels sont disponibles dans la liste.")
+                    else:
+                        for p in posts:
+                            p['title'] = p.get('text', '')
+                        st.session_state.scrape_results = {"posts": posts, "source": "telegram", "crypto": channel}
+                except Exception as e:
+                    st.error(f"❌ Erreur lors du scraping: {e}")
+                    st.exception(e)
     
     elif source == "StockTwits":
         c1, c2 = st.columns(2)

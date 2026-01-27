@@ -64,13 +64,17 @@ git clone https://github.com/Arthur-destb38/Projet_API.git
 cd Projet_API
 
 # Installer Poetry si nécessaire
-pip install poetry
+curl -sSL https://install.python-poetry.org | python3 -
+# Ou avec pip :
+# pip install poetry
 
 # Installer toutes les dépendances
 poetry install
 ```
 
 La première installation prend quelques minutes car elle télécharge PyTorch et les Transformers (~2 Go).
+
+**Note** : Ce projet utilise **Poetry** pour la gestion des dépendances. Toutes les commandes doivent être exécutées avec `poetry run`.
 
 ---
 
@@ -80,11 +84,26 @@ La première installation prend quelques minutes car elle télécharge PyTorch e
 
 C'est l'interface principale du projet, avec des visualisations interactives :
 
+**Option 1 : Script de lancement (le plus simple)**
 ```bash
+./run.sh
+```
+
+**Option 2 : Avec Poetry directement**
+```bash
+# Si poetry est dans le PATH
 poetry run streamlit run streamlit_app.py
+
+# Sinon, utilise python3 -m poetry
+python3 -m poetry run streamlit run streamlit_app.py
 ```
 
 L'application s'ouvre automatiquement sur `http://localhost:8501`
+
+**Note** : 
+- Si le port 8501 est occupé, Streamlit utilisera automatiquement 8502, 8503, etc.
+- **Important** : Utilise toujours `poetry run` pour exécuter les commandes dans l'environnement virtuel Poetry
+- Si Poetry n'est pas installé, installe-le avec : `curl -sSL https://install.python-poetry.org | python3 -`
 
 ### API FastAPI
 
@@ -96,6 +115,8 @@ poetry run uvicorn app.main:app --reload
 
 - Interface web : `http://127.0.0.1:8000`
 - Documentation Swagger : `http://127.0.0.1:8000/docs`
+
+**Note** : N'oublie pas d'utiliser `poetry run` pour toutes les commandes Python du projet.
 
 ---
 

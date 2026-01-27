@@ -20,6 +20,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.scrapers import scrape_reddit, scrape_stocktwits, scrape_twitter, get_reddit_limits, get_stocktwits_limits, get_twitter_limits
 from app.scrapers import scrape_telegram_simple, scrape_telegram_paginated, TELEGRAM_CHANNELS, get_telegram_limits
+from app.scrapers import scrape_4chan_biz, get_chan4_limits
+from app.scrapers import scrape_bitcointalk, get_bitcointalk_limits
+from app.scrapers import scrape_github_discussions, get_github_limits
 from app.nlp import load_finbert, load_cryptobert, analyze_finbert, analyze_cryptobert
 from app.utils import clean_text
 from app.prices import get_historical_prices, CryptoPrices
@@ -270,7 +273,10 @@ LIMITS = {
     "Reddit": {"HTTP": get_reddit_limits()["http"], "Selenium": get_reddit_limits()["selenium"]},
     "StockTwits": {"Selenium": get_stocktwits_limits()["selenium"]},  # 1000 posts max avec scroll amélioré
     "Twitter": {"Selenium": 100, "Login": 2000},  # Login = avec cookies (methode Jose)
-    "Telegram": {"Simple": get_telegram_limits()["simple"], "Paginé": get_telegram_limits()["paginated"]}
+    "Telegram": {"Simple": get_telegram_limits()["simple"], "Paginé": get_telegram_limits()["paginated"]},
+    "4chan": {"HTTP": get_chan4_limits()["http"]},
+    "Bitcointalk": {"HTTP": get_bitcointalk_limits()["http"]},
+    "GitHub": {"API": get_github_limits()["api"]}
 }
 
 # ============ CACHE ============
@@ -328,6 +334,21 @@ def scrape_data(source, config, limit, method, telegram_channel=None, crypto_nam
         for p in posts:
             p['title'] = p.get('text', '')
         save_posts(posts, source="telegram", method="http")
+        return posts
+    elif source == "4chan":
+        query = crypto_name or config.get('sub', 'crypto').lower()
+        posts = scrape_4chan_biz(query, limit)
+        save_posts(posts, source="4chan", method="http")
+        return posts
+    elif source == "Bitcointalk":
+        query = crypto_name or config.get('sub', 'crypto').lower()
+        posts = scrape_bitcointalk(query, limit)
+        save_posts(posts, source="bitcointalk", method="http")
+        return posts
+    elif source == "GitHub":
+        query = crypto_name or config.get('sub', 'crypto').lower()
+        posts = scrape_github_discussions(query, limit)
+        save_posts(posts, source="github", method="api")
         return posts
     else:
         posts = scrape_stocktwits(config['stocktwits'], limit)
@@ -393,7 +414,7 @@ def page_dashboard():
         crypto = st.selectbox("Crypto", list(CRYPTO_LIST.keys()), key="dash_crypto")
         config = CRYPTO_LIST[crypto]
         
-        source = st.radio("Source", ["Reddit", "StockTwits", "Twitter", "Telegram"], horizontal=True, key="dash_source")
+        source = st.radio("Source", ["Reddit", "StockTwits", "Twitter", "Telegram", "4chan", "Bitcointalk", "GitHub"], horizontal=True, key="dash_source")
         
         if source == "Reddit":
             method = st.radio("Méthode", ["HTTP", "Selenium"], horizontal=True, key="dash_method")
@@ -434,6 +455,36 @@ def page_dashboard():
             <div class="info-box">
                 <strong>Channel:</strong> @{telegram_channel}<br>
                 <small>Scraping public sans API</small>
+            </div>
+            """, unsafe_allow_html=True)
+        elif source == "4chan":
+            method = "HTTP"
+            max_limit = LIMITS["4chan"]["HTTP"]
+            telegram_channel = None
+            st.markdown("""
+            <div class="success-box">
+                <strong>4chan /biz/</strong> — Très actif pour crypto<br>
+                <small>Scraping rapide via API, pas de login requis. Discussions anonymes sur /biz/.</small>
+            </div>
+            """, unsafe_allow_html=True)
+        elif source == "Bitcointalk":
+            method = "HTTP"
+            max_limit = LIMITS["Bitcointalk"]["HTTP"]
+            telegram_channel = None
+            st.markdown("""
+            <div class="success-box">
+                <strong>Bitcointalk</strong> — Forum crypto historique<br>
+                <small>Scraping via HTTP, pas de login requis. Discussions longues et détaillées sur crypto.</small>
+            </div>
+            """, unsafe_allow_html=True)
+        elif source == "GitHub":
+            method = "API"
+            max_limit = LIMITS["GitHub"]["API"]
+            telegram_channel = None
+            st.markdown("""
+            <div class="success-box">
+                <strong>GitHub</strong> — Issues/Discussions projets crypto<br>
+                <small>API officielle GitHub (gratuite). Discussions techniques sur projets Bitcoin, Ethereum, etc.</small>
             </div>
             """, unsafe_allow_html=True)
         else:
@@ -632,7 +683,7 @@ def page_compare():
         crypto = st.selectbox("Crypto", list(CRYPTO_LIST.keys()), key="cmp_crypto")
         config = CRYPTO_LIST[crypto]
         
-        source = st.radio("Source", ["Reddit", "StockTwits", "Twitter", "Telegram"], key="cmp_source")
+        source = st.radio("Source", ["Reddit", "StockTwits", "Twitter", "Telegram", "4chan", "Bitcointalk", "GitHub"], key="cmp_source")
         
         telegram_channel = None
         if source == "Reddit":
@@ -739,7 +790,7 @@ def page_multi():
         selected = st.multiselect("Cryptos", list(CRYPTO_LIST.keys()),
                                   default=["Bitcoin", "Ethereum", "Solana"], key="multi_crypto")
         
-        source = st.radio("Source", ["Reddit", "StockTwits", "Twitter", "Telegram"], key="multi_source")
+        source = st.radio("Source", ["Reddit", "StockTwits", "Twitter", "Telegram", "4chan", "Bitcointalk", "GitHub"], key="multi_source")
         
         telegram_channel = None
         if source == "Reddit":
@@ -753,6 +804,18 @@ def page_multi():
             max_limit = LIMITS["Telegram"][method]
             telegram_channel = st.selectbox("Channel", list(TELEGRAM_CHANNELS.keys()),
                                            format_func=lambda x: f"{x}", key="multi_tg_channel")
+        elif source == "4chan":
+            method = "HTTP"
+            max_limit = LIMITS["4chan"]["HTTP"]
+            telegram_channel = None
+        elif source == "Bitcointalk":
+            method = "HTTP"
+            max_limit = LIMITS["Bitcointalk"]["HTTP"]
+            telegram_channel = None
+        elif source == "GitHub":
+            method = "API"
+            max_limit = LIMITS["GitHub"]["API"]
+            telegram_channel = None
         else:
             method = "Selenium"
             max_limit = LIMITS["StockTwits"]["Selenium"]
@@ -1283,39 +1346,100 @@ def page_scraping():
         "YouTube": {"icon": "▶️", "max": 5000, "desc": "Commentaires vidéos"},
         "Telegram": {"icon": "✈️", "max": 500, "desc": "Channels publics"},
         "StockTwits": {"icon": "📈", "max": 1000, "desc": "Labels inclus (scroll amélioré)"},
+        "4chan": {"icon": "💬", "max": 200, "desc": "/biz/ discussions"},
+        "Bitcointalk": {"icon": "💭", "max": 200, "desc": "Forum historique"},
+        "GitHub": {"icon": "💻", "max": 200, "desc": "Issues/Discussions"},
     }
     
-    # Sélection de la source
-    cols = st.columns(5)
+    # Sélection de la source - 3 plateformes par ligne
     if 'scrape_source' not in st.session_state:
         st.session_state.scrape_source = "Reddit"
+    if 'show_more_platforms' not in st.session_state:
+        st.session_state.show_more_platforms = False
     
-    for i, (name, info) in enumerate(sources.items()):
-        with cols[i]:
-            selected = st.session_state.scrape_source == name
-            border_color = "#6366f1" if selected else "rgba(100,100,140,0.3)"
-            bg = "rgba(99, 102, 241, 0.1)" if selected else "rgba(30, 30, 50, 0.5)"
-            
-            st.markdown(f"""
-            <div style="
-                background: {bg};
-                border: 2px solid {border_color};
-                border-radius: 12px;
-                padding: 16px 8px;
-                text-align: center;
-            ">
-                <div style="font-size: 1.5rem;">{info['icon']}</div>
-                <div style="font-weight: 600; color: {'#fff' if selected else '#a5b4fc'}; margin-top: 4px;">{name}</div>
-                <div style="font-size: 0.7rem; color: #64748b; margin-top: 2px;">{info['desc']}</div>
-                <div style="font-size: 0.65rem; color: #475569; margin-top: 2px;">{info['max']} max</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            btn_label = "Actif" if selected else "Sélectionner"
-            if st.button(btn_label, key=f"src_{name}", use_container_width=True, disabled=selected):
-                st.session_state.scrape_source = name
-                st.session_state.pop('scrape_results', None)
-                st.rerun()
+    sources_list = list(sources.items())
+    num_rows = (len(sources_list) + 2) // 3  # Arrondir vers le haut (3 par ligne)
+    
+    # Afficher UNIQUEMENT les 2 premières lignes (6 plateformes) dans la section principale
+    # Les autres lignes seront affichées uniquement quand "Voir plus" est cliqué
+    for row in range(2):  # Toujours afficher seulement les lignes 0 et 1
+        cols = st.columns(3)
+        for col_idx in range(3):
+            source_idx = row * 3 + col_idx
+            if source_idx < len(sources_list):
+                name, info = sources_list[source_idx]
+                with cols[col_idx]:
+                    selected = st.session_state.scrape_source == name
+                    border_color = "#6366f1" if selected else "rgba(100,100,140,0.3)"
+                    bg = "rgba(99, 102, 241, 0.1)" if selected else "rgba(30, 30, 50, 0.5)"
+                    
+                    st.markdown(f"""
+                    <div style="
+                        background: {bg};
+                        border: 2px solid {border_color};
+                        border-radius: 12px;
+                        padding: 16px 8px;
+                        text-align: center;
+                    ">
+                        <div style="font-size: 1.5rem;">{info['icon']}</div>
+                        <div style="font-weight: 600; color: {'#fff' if selected else '#a5b4fc'}; margin-top: 4px;">{name}</div>
+                        <div style="font-size: 0.7rem; color: #64748b; margin-top: 2px;">{info['desc']}</div>
+                        <div style="font-size: 0.65rem; color: #475569; margin-top: 2px;">{info['max']} max</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    btn_label = "Actif" if selected else "Sélectionner"
+                    if st.button(btn_label, key=f"src_{name}", use_container_width=True, disabled=selected):
+                        st.session_state.scrape_source = name
+                        st.session_state.pop('scrape_results', None)
+                        st.rerun()
+    
+    # Bouton "Voir plus" / "Voir moins" si plus de 2 lignes
+    if num_rows > 2:
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col2:
+            if st.session_state.show_more_platforms:
+                if st.button("▲ Voir moins", use_container_width=True, key="toggle_platforms"):
+                    st.session_state.show_more_platforms = False
+                    st.rerun()
+            else:
+                if st.button("▼ Voir plus", use_container_width=True, key="toggle_platforms"):
+                    st.session_state.show_more_platforms = True
+                    st.rerun()
+        
+        # Afficher UNIQUEMENT les lignes supplémentaires (à partir de la ligne 2) quand "Voir plus" est cliqué
+        if st.session_state.show_more_platforms:
+            for row in range(2, num_rows):
+                cols = st.columns(3)
+                for col_idx in range(3):
+                    source_idx = row * 3 + col_idx
+                    if source_idx < len(sources_list):
+                        name, info = sources_list[source_idx]
+                        with cols[col_idx]:
+                            selected = st.session_state.scrape_source == name
+                            border_color = "#6366f1" if selected else "rgba(100,100,140,0.3)"
+                            bg = "rgba(99, 102, 241, 0.1)" if selected else "rgba(30, 30, 50, 0.5)"
+                            
+                            st.markdown(f"""
+                            <div style="
+                                background: {bg};
+                                border: 2px solid {border_color};
+                                border-radius: 12px;
+                                padding: 16px 8px;
+                                text-align: center;
+                            ">
+                                <div style="font-size: 1.5rem;">{info['icon']}</div>
+                                <div style="font-weight: 600; color: {'#fff' if selected else '#a5b4fc'}; margin-top: 4px;">{name}</div>
+                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 2px;">{info['desc']}</div>
+                                <div style="font-size: 0.65rem; color: #475569; margin-top: 2px;">{info['max']} max</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            btn_label = "Actif" if selected else "Sélectionner"
+                            if st.button(btn_label, key=f"src_{name}_more", use_container_width=True, disabled=selected):
+                                st.session_state.scrape_source = name
+                                st.session_state.pop('scrape_results', None)
+                                st.rerun()
     
     st.markdown("---")
     
@@ -1508,6 +1632,81 @@ def page_scraping():
                     st.error("❌ Aucun post récupéré. Vérifiez votre connexion et que Selenium est installé.")
             
             st.session_state.scrape_results = {"posts": posts, "source": "stocktwits", "crypto": crypto}
+    
+    elif source == "4chan":
+        c1, c2 = st.columns(2)
+        with c1:
+            crypto = st.selectbox("Cryptomonnaie", list(CRYPTO_LIST.keys()), key="scr_crypto")
+        with c2:
+            limit = st.slider("Nombre de posts", 10, 200, 50, key="scr_limit")
+        
+        st.markdown("""
+        <div class="info-box">
+            <strong>4chan /biz/</strong> — Discussions crypto anonymes<br>
+            <small>Scraping rapide via API, pas de login requis. Discussions très actives sur crypto.</small>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
+            config = CRYPTO_LIST[crypto]
+            with st.spinner("Scraping 4chan /biz/ en cours..."):
+                query = config.get('sub', 'crypto').lower()
+                posts = scrape_4chan_biz(query, limit)
+            if posts:
+                st.success(f"✅ {len(posts)} posts récupérés depuis 4chan /biz/")
+            else:
+                st.warning("⚠️ Aucun post récupéré")
+            st.session_state.scrape_results = {"posts": posts, "source": "4chan", "crypto": crypto}
+    
+    elif source == "Bitcointalk":
+        c1, c2 = st.columns(2)
+        with c1:
+            crypto = st.selectbox("Cryptomonnaie", list(CRYPTO_LIST.keys()), key="scr_crypto")
+        with c2:
+            limit = st.slider("Nombre de posts", 10, 200, 50, key="scr_limit")
+        
+        st.markdown("""
+        <div class="info-box">
+            <strong>Bitcointalk</strong> — Forum crypto historique<br>
+            <small>Scraping via HTTP, pas de login requis. Discussions longues et détaillées sur crypto.</small>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
+            config = CRYPTO_LIST[crypto]
+            with st.spinner("Scraping Bitcointalk en cours..."):
+                query = config.get('sub', 'crypto').lower()
+                posts = scrape_bitcointalk(query, limit)
+            if posts:
+                st.success(f"✅ {len(posts)} posts récupérés depuis Bitcointalk")
+            else:
+                st.warning("⚠️ Aucun post récupéré")
+            st.session_state.scrape_results = {"posts": posts, "source": "bitcointalk", "crypto": crypto}
+    
+    elif source == "GitHub":
+        c1, c2 = st.columns(2)
+        with c1:
+            crypto = st.selectbox("Cryptomonnaie", list(CRYPTO_LIST.keys()), key="scr_crypto")
+        with c2:
+            limit = st.slider("Nombre de posts", 10, 200, 50, key="scr_limit")
+        
+        st.markdown("""
+        <div class="info-box">
+            <strong>GitHub</strong> — Issues/Discussions projets crypto<br>
+            <small>API officielle GitHub (gratuite). Discussions techniques sur projets Bitcoin, Ethereum, Solana, etc.</small>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
+            config = CRYPTO_LIST[crypto]
+            with st.spinner("Scraping GitHub Issues en cours..."):
+                query = config.get('sub', 'crypto').lower()
+                posts = scrape_github_discussions(query, limit)
+            if posts:
+                st.success(f"✅ {len(posts)} issues/discussions récupérées depuis GitHub")
+            else:
+                st.warning("⚠️ Aucun post récupéré")
+            st.session_state.scrape_results = {"posts": posts, "source": "github", "crypto": crypto}
     
     # Affichage des résultats
     st.markdown("---")

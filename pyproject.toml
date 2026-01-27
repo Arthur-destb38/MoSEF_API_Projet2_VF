@@ -26,6 +26,7 @@ setuptools = "^80.9.0"
 google-api-python-client = "^2.188.0"
 python-dotenv = "^1.2.1"
 psycopg2-binary = "^2.9"
+instaloader = "^4.15"
 
 [build-system]
 requires = ["poetry-core"]

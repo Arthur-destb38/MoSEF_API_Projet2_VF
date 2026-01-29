@@ -15,7 +15,7 @@ Pour répondre à ces questions, nous avons construit un pipeline complet qui :
 
 ---
 
-## Pourquoi ce projet ?
+## Pourquoi ce projet
 
 Le marché crypto est particulièrement sensible au sentiment. Un tweet d'Elon Musk peut faire bouger le Bitcoin de plusieurs pourcents en quelques minutes. Mais au-delà des célébrités, qu'en est-il du sentiment "de base" des investisseurs particuliers ?
 

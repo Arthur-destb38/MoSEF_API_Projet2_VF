@@ -9,6 +9,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, date, timedelta
+import random
 import sys
 import os
 from dotenv import load_dotenv
@@ -938,6 +939,7 @@ def display_results(results, source, model):
 
 def page_documentation():
     """Page Documentation : méthodologie, sources, modèles, références."""
+    render_header()
     st.markdown("""
     <div style="margin-bottom: 2rem;">
         <h1 style="font-size: 2rem; font-weight: 700; color: #e0e7ff; margin-bottom: 0.5rem;">Documentation</h1>
@@ -1511,6 +1513,14 @@ def page_analyses_resultats():
             with d2:
                 date_to_global = st.date_input("Au", value=date.today(), key="glob_date_to")
 
+        # Option de répartition équitable
+        balanced = st.checkbox(
+            "Répartition équitable entre les sources",
+            value=False,
+            key="glob_balanced",
+            help="Si activé, chaque source contribue un nombre égal de posts (utile si une source domine les autres)"
+        )
+
         st.markdown("---")
         st.markdown("#### Modèle NLP")
         st.caption("Choisissez le modèle pour l'analyse de sentiment.")
@@ -1546,10 +1556,25 @@ def page_analyses_resultats():
 
         if run_global:
             src = st.session_state.glob_sources if st.session_state.glob_sources else None
-            posts = get_all_posts(
-                source=src, limit=limit,
-                date_from=date_from_global, date_to=date_to_global
-            )
+            
+            # Récupération des posts (équitable ou non)
+            if balanced and src and len(src) > 1:
+                # Répartition équitable : limite / nombre de sources
+                per_source_limit = max(1, limit // len(src))
+                posts = []
+                for source in src:
+                    source_posts = get_all_posts(
+                        source=source, limit=per_source_limit,
+                        date_from=date_from_global, date_to=date_to_global
+                    )
+                    posts.extend(source_posts)
+                # Mélanger pour éviter les biais d'ordre
+                random.shuffle(posts)
+            else:
+                posts = get_all_posts(
+                    source=src, limit=limit,
+                    date_from=date_from_global, date_to=date_to_global
+                )
             
             if not posts:
                 st.error("Aucun post trouvé.")
@@ -1564,8 +1589,10 @@ def page_analyses_resultats():
                         out = analyze_fn(text, tok, mod)
                         results.append({
                             "Texte": text[:100] + "…" if len(text) > 100 else text,
+                            "Full_text": text,
                             "Score": out["score"],
-                            "Label": out["label"]
+                            "Label": out["label"],
+                            "Source": p.get("source", "unknown")
                         })
                     bar.progress((i + 1) / len(posts))
                 bar.empty()
@@ -1573,32 +1600,117 @@ def page_analyses_resultats():
                 if results:
                     df = pd.DataFrame(results)
                     mean_score = df["Score"].mean()
+                    bullish = (df["Label"] == "Bullish").sum()
+                    bearish = (df["Label"] == "Bearish").sum()
+                    neutral = (df["Label"] == "Neutral").sum()
+                    
                     st.success(f"{len(results)} posts analysés")
 
-                    m1, m2, m3 = st.columns(3)
+                    # --- 4 Métriques ---
+                    m1, m2, m3, m4 = st.columns(4)
                     with m1:
-                        render_metric_card("Score moyen", f"{mean_score:+.3f}")
+                        render_metric_card("Posts analysés", f"{len(results):,}")
                     with m2:
-                        bullish = (df["Label"] == "Bullish").sum()
-                        render_metric_card("Bullish", f"{bullish} ({100 * bullish / len(df):.0f} %)")
+                        render_metric_card("Score moyen", f"{mean_score:+.3f}")
                     with m3:
-                        bearish = (df["Label"] == "Bearish").sum()
-                        render_metric_card("Bearish", f"{bearish} ({100 * bearish / len(df):.0f} %)")
-
-                    fig = px.histogram(df, x="Score", color="Label",
-                                       color_discrete_map={"Bullish": "#22c55e", "Bearish": "#ef4444", "Neutral": "#6b7280"},
-                                       nbins=25)
-                    fig.update_layout(
-                        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                        font_color="#e0e7ff", height=300,
-                        xaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
-                        yaxis=dict(gridcolor="rgba(255,255,255,0.1)")
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                    st.dataframe(df, use_container_width=True, height=300)
+                        render_metric_card("Bullish", f"{bullish} ({100 * bullish / len(df):.0f}%)")
+                    with m4:
+                        render_metric_card("Bearish", f"{bearish} ({100 * bearish / len(df):.0f}%)")
 
                     st.markdown("---")
-                    st.markdown("**💡 Interprétation** — Un score moyen positif indique un sentiment plutôt haussier ; négatif, plutôt baissier. La répartition Bullish / Bearish / Neutral donne le consensus. FinBERT est plus généraliste, CryptoBERT est entraîné sur du texte crypto.")
+
+                    # --- 2 graphiques côte à côte ---
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**Distribution des scores**")
+                        fig_hist = px.histogram(df, x="Score", color="Label",
+                                           color_discrete_map={"Bullish": "#22c55e", "Bearish": "#ef4444", "Neutral": "#6b7280"},
+                                           nbins=30)
+                        fig_hist.update_layout(
+                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                            font_color="#e0e7ff", height=280,
+                            xaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="Score"),
+                            yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="Nombre de posts"),
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+                            margin=dict(t=40, b=40)
+                        )
+                        st.plotly_chart(fig_hist, use_container_width=True)
+                    
+                    with col2:
+                        st.markdown("**Répartition des sentiments**")
+                        sentiment_counts = pd.DataFrame({
+                            "Sentiment": ["Bullish", "Neutral", "Bearish"],
+                            "Count": [bullish, neutral, bearish]
+                        })
+                        fig_pie = px.pie(sentiment_counts, values="Count", names="Sentiment",
+                                        color="Sentiment",
+                                        color_discrete_map={"Bullish": "#22c55e", "Bearish": "#ef4444", "Neutral": "#6b7280"})
+                        fig_pie.update_layout(
+                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                            font_color="#e0e7ff", height=280,
+                            margin=dict(t=40, b=40)
+                        )
+                        fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+                        st.plotly_chart(fig_pie, use_container_width=True)
+
+                    # --- 2 graphiques côte à côte : Box plot + Camembert par plateforme ---
+                    col3, col4 = st.columns(2)
+                    
+                    with col3:
+                        st.markdown("**Distribution des scores par sentiment**")
+                        fig_box = px.box(df, x="Label", y="Score", color="Label",
+                                        color_discrete_map={"Bullish": "#22c55e", "Bearish": "#ef4444", "Neutral": "#6b7280"},
+                                        category_orders={"Label": ["Bearish", "Neutral", "Bullish"]})
+                        fig_box.update_layout(
+                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                            font_color="#e0e7ff", height=280,
+                            xaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="Sentiment"),
+                            yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="Score"),
+                            showlegend=False,
+                            margin=dict(t=20, b=40)
+                        )
+                        st.plotly_chart(fig_box, use_container_width=True)
+                    
+                    with col4:
+                        st.markdown("**Répartition par plateforme**")
+                        source_counts = df["Source"].value_counts().reset_index()
+                        source_counts.columns = ["Plateforme", "Posts"]
+                        fig_platform = px.pie(source_counts, values="Posts", names="Plateforme",
+                                             color_discrete_sequence=px.colors.sequential.Purples_r)
+                        fig_platform.update_layout(
+                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                            font_color="#e0e7ff", height=280,
+                            margin=dict(t=20, b=40)
+                        )
+                        fig_platform.update_traces(textposition='inside', textinfo='percent+label')
+                        st.plotly_chart(fig_platform, use_container_width=True)
+
+                    # --- Répartition par source (si plusieurs sources) ---
+                    if df["Source"].nunique() > 1:
+                        st.markdown("**Sentiment par plateforme**")
+                        source_sentiment = df.groupby(["Source", "Label"]).size().reset_index(name="Count")
+                        fig_source = px.bar(source_sentiment, x="Source", y="Count", color="Label",
+                                           color_discrete_map={"Bullish": "#22c55e", "Bearish": "#ef4444", "Neutral": "#6b7280"},
+                                           barmode="stack")
+                        fig_source.update_layout(
+                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                            font_color="#e0e7ff", height=300,
+                            xaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="Plateforme"),
+                            yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="Nombre de posts"),
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+                            margin=dict(t=40, b=40)
+                        )
+                        st.plotly_chart(fig_source, use_container_width=True)
+
+                    # --- Tableau des posts ---
+                    st.markdown("**Échantillon de posts analysés**")
+                    display_df = df[["Texte", "Score", "Label", "Source"]].head(50).copy()
+                    display_df["Score"] = display_df["Score"].apply(lambda x: f"{x:+.3f}")
+                    st.dataframe(display_df, use_container_width=True, height=300)
+
+                    st.markdown("---")
+                    st.markdown("**💡 Interprétation** — Un score moyen positif indique un sentiment plutôt haussier ; négatif, plutôt baissier. Le box plot montre la dispersion des scores pour chaque sentiment. Si plusieurs sources sont analysées, le graphique par source permet de comparer les tendances.")
                 else:
                     st.warning("Aucun texte exploitable.")
 
@@ -1702,6 +1814,7 @@ def page_analyses_resultats():
                 else:
                     tok, mod, analyze_fn = get_model(model_crypto)
                     results = []
+                    detailed_results = []  # Pour stocker les détails par post
                     bar = st.progress(0, text="Analyse...")
                     
                     for i, name in enumerate(selected):
@@ -1709,17 +1822,31 @@ def page_analyses_resultats():
                         subset = [p for p in posts if any(k in ((p.get("title") or "") + " " + (p.get("text") or "")).lower() for k in kw)]
                         
                         scores = []
+                        labels = {"Bullish": 0, "Bearish": 0, "Neutral": 0}
                         for p in subset:
                             text = clean_text((p.get("title") or p.get("text") or "").strip())
                             if text and len(text) >= 5:
                                 out = analyze_fn(text, tok, mod)
                                 scores.append(out["score"])
+                                labels[out["label"]] = labels.get(out["label"], 0) + 1
+                                detailed_results.append({
+                                    "Crypto": name,
+                                    "Score": out["score"],
+                                    "Label": out["label"]
+                                })
                         
                         avg = sum(scores) / len(scores) if scores else None
+                        total = sum(labels.values())
                         results.append({
                             "Crypto": f"{cryptos[name]['icon']} {name}",
+                            "Name": name,
                             "Posts": len(scores),
-                            "Score": avg
+                            "Score": avg,
+                            "Bullish": labels["Bullish"],
+                            "Bearish": labels["Bearish"],
+                            "Neutral": labels["Neutral"],
+                            "Bullish%": (labels["Bullish"] / total * 100) if total > 0 else 0,
+                            "Bearish%": (labels["Bearish"] / total * 100) if total > 0 else 0,
                         })
                         bar.progress((i + 1) / len(selected))
                     bar.empty()
@@ -1727,35 +1854,99 @@ def page_analyses_resultats():
                     df = pd.DataFrame(results)
                     st.success(f"{len(selected)} cryptos analysées")
 
-                    plot_df = df[df["Score"].notna()].copy()
-                    if not plot_df.empty:
-                        fig = px.bar(plot_df, x="Crypto", y="Score",
-                                     color="Score",
-                                     color_continuous_scale=["#ef4444", "#6b7280", "#22c55e"],
-                                     color_continuous_midpoint=0)
-                        fig.update_layout(
-                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                            font_color="#e0e7ff", height=350,
-                            xaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
-                            yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="Score moyen"),
-                            showlegend=False
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-
-                    st.dataframe(
-                        df.assign(Score=df["Score"].apply(lambda x: f"{x:+.3f}" if x is not None and not (isinstance(x, float) and np.isnan(x)) else "—")),
-                        use_container_width=True,
-                        hide_index=True
-                    )
+                    # --- Métriques globales ---
+                    total_posts = df["Posts"].sum()
+                    avg_score = df[df["Score"].notna()]["Score"].mean() if not df[df["Score"].notna()].empty else 0
+                    total_bullish = df["Bullish"].sum()
+                    total_bearish = df["Bearish"].sum()
+                    
+                    m1, m2, m3, m4 = st.columns(4)
+                    with m1:
+                        render_metric_card("Posts analysés", f"{total_posts:,}")
+                    with m2:
+                        render_metric_card("Score moyen", f"{avg_score:+.3f}")
+                    with m3:
+                        render_metric_card("Bullish", f"{total_bullish} ({100*total_bullish/total_posts:.0f}%)" if total_posts > 0 else "0")
+                    with m4:
+                        render_metric_card("Bearish", f"{total_bearish} ({100*total_bearish/total_posts:.0f}%)" if total_posts > 0 else "0")
 
                     st.markdown("---")
-                    st.markdown("**💡 Interprétation** — Un score plus élevé pour une crypto reflète un discours plus haussier dans les posts qui la mentionnent. Le nombre de « Posts » par crypto dépend du volume de discussions ; une crypto peu mentionnée peut donner un score basé sur peu d'occurrences.")
+
+                    # --- Graphiques côte à côte ---
+                    plot_df = df[df["Score"].notna()].copy()
+                    if not plot_df.empty:
+                        col_chart1, col_chart2 = st.columns(2)
+                        
+                        with col_chart1:
+                            st.markdown("**Score moyen par crypto**")
+                            fig_score = px.bar(plot_df, x="Crypto", y="Score",
+                                         color="Score",
+                                         color_continuous_scale=["#ef4444", "#6b7280", "#22c55e"],
+                                         color_continuous_midpoint=0)
+                            fig_score.update_layout(
+                                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                font_color="#e0e7ff", height=300,
+                                xaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+                                yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="Score"),
+                                showlegend=False,
+                                margin=dict(t=20, b=40)
+                            )
+                            st.plotly_chart(fig_score, use_container_width=True)
+                        
+                        with col_chart2:
+                            st.markdown("**Répartition des posts**")
+                            fig_pie = px.pie(plot_df, values="Posts", names="Crypto",
+                                           color_discrete_sequence=px.colors.sequential.Purples_r)
+                            fig_pie.update_layout(
+                                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                font_color="#e0e7ff", height=300,
+                                margin=dict(t=20, b=40)
+                            )
+                            fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+                            st.plotly_chart(fig_pie, use_container_width=True)
+
+                    # --- Graphique sentiment par crypto ---
+                    if not plot_df.empty and len(plot_df) > 0:
+                        st.markdown("**Répartition Bullish / Bearish / Neutral par crypto**")
+                        
+                        # Préparer les données pour le stacked bar
+                        sentiment_data = []
+                        for _, row in df.iterrows():
+                            if row["Posts"] > 0:
+                                sentiment_data.append({"Crypto": row["Crypto"], "Sentiment": "Bullish", "Count": row["Bullish"]})
+                                sentiment_data.append({"Crypto": row["Crypto"], "Sentiment": "Neutral", "Count": row["Neutral"]})
+                                sentiment_data.append({"Crypto": row["Crypto"], "Sentiment": "Bearish", "Count": row["Bearish"]})
+                        
+                        if sentiment_data:
+                            df_sentiment = pd.DataFrame(sentiment_data)
+                            fig_sentiment = px.bar(df_sentiment, x="Crypto", y="Count", color="Sentiment",
+                                                  color_discrete_map={"Bullish": "#22c55e", "Bearish": "#ef4444", "Neutral": "#6b7280"},
+                                                  barmode="stack")
+                            fig_sentiment.update_layout(
+                                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                font_color="#e0e7ff", height=300,
+                                xaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+                                yaxis=dict(gridcolor="rgba(255,255,255,0.1)", title="Nombre de posts"),
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+                                margin=dict(t=40, b=40)
+                            )
+                            st.plotly_chart(fig_sentiment, use_container_width=True)
+
+                    # --- Tableau détaillé ---
+                    st.markdown("**Tableau récapitulatif**")
+                    display_df = df[["Crypto", "Posts", "Score", "Bullish", "Bearish", "Neutral"]].copy()
+                    display_df["Score"] = display_df["Score"].apply(lambda x: f"{x:+.3f}" if x is not None and not (isinstance(x, float) and np.isnan(x)) else "—")
+                    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+                    st.markdown("---")
+                    st.markdown("**💡 Interprétation** — Un score plus élevé pour une crypto reflète un discours plus haussier dans les posts qui la mentionnent. Le graphique empilé montre la répartition des sentiments. Une crypto avec beaucoup de « Bullish » et peu de « Bearish » indique un consensus positif.")
 
 
 # ============ PAGE SCRAPING ============
 
 def page_scraping():
     """Page dédiée au scraping de données"""
+    render_header()
     st.markdown("""
     <div style="margin-bottom: 1.5rem;">
         <h2 style="font-size: 1.8rem; font-weight: 600; color: #e0e7ff; margin-bottom: 0.3rem;">Data Scraper</h2>

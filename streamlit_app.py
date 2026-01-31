@@ -1111,7 +1111,7 @@ def page_documentation():
                 st.caption("Les deux modèles donnent un label différent pour ce texte — FinBERT est entraîné sur la finance générale, CryptoBERT sur le jargon crypto.")
     elif run_compare:
         st.warning("Saisis au moins quelques mots (5 caractères minimum) puis clique sur **Comparer**.")
-    
+
     st.markdown("---")
     st.caption("Crypto Sentiment — MoSEF 2025-2026")
 
@@ -1564,11 +1564,11 @@ def page_analyses_resultats():
         st.markdown("---")
         st.markdown("#### Modèle NLP")
         st.caption("Choisissez le modèle pour l'analyse de sentiment.")
-        
+
         # Initialiser le modèle sélectionné
         if "glob_model" not in st.session_state:
             st.session_state.glob_model = "FinBERT"
-        
+
         # Boutons modèle + bouton lancer
         m1, m2, m3 = st.columns([1, 1, 2])
         with m1:
@@ -1591,12 +1591,12 @@ def page_analyses_resultats():
                 st.rerun()
         with m3:
             run_global = st.button("Lancer l'analyse", type="primary", key="glob_run", width="stretch")
-        
+
         model = st.session_state.glob_model
 
         if run_global:
             src = st.session_state.glob_sources if st.session_state.glob_sources else None
-            
+
             # Récupération des posts (équitable ou non)
             if balanced and src and len(src) > 1:
                 # Répartition équitable : limite / nombre de sources
@@ -1615,14 +1615,14 @@ def page_analyses_resultats():
                     source=src, limit=limit,
                     date_from=date_from_global, date_to=date_to_global
                 )
-            
+
             if not posts:
                 st.error("Aucun post trouvé.")
             else:
                 tok, mod, analyze_fn = get_model(model)
                 results = []
                 bar = st.progress(0, text="Analyse...")
-                
+
                 for i, p in enumerate(posts):
                     text = clean_text((p.get("title") or p.get("text") or "").strip())
                     if text and len(text) >= 5:
@@ -1636,14 +1636,14 @@ def page_analyses_resultats():
                         })
                     bar.progress((i + 1) / len(posts))
                 bar.empty()
-                
+
                 if results:
                     df = pd.DataFrame(results)
                     mean_score = df["Score"].mean()
                     bullish = (df["Label"] == "Bullish").sum()
                     bearish = (df["Label"] == "Bearish").sum()
                     neutral = (df["Label"] == "Neutral").sum()
-                    
+
                     st.success(f"{len(results)} posts analysés")
 
                     # --- 4 Métriques ---
@@ -1661,7 +1661,7 @@ def page_analyses_resultats():
 
                     # --- 2 graphiques côte à côte ---
                     col1, col2 = st.columns(2)
-                    
+
                     with col1:
                         st.markdown("**Distribution des scores**")
                         fig_hist = px.histogram(df, x="Score", color="Label",
@@ -1676,7 +1676,7 @@ def page_analyses_resultats():
                             margin=dict(t=40, b=40)
                         )
                         st.plotly_chart(fig_hist, width="stretch")
-                    
+
                     with col2:
                         st.markdown("**Répartition des sentiments**")
                         sentiment_counts = pd.DataFrame({
@@ -1696,7 +1696,7 @@ def page_analyses_resultats():
 
                     # --- 2 graphiques côte à côte : Box plot + Camembert par plateforme ---
                     col3, col4 = st.columns(2)
-                    
+
                     with col3:
                         st.markdown("**Distribution des scores par sentiment**")
                         fig_box = px.box(df, x="Label", y="Score", color="Label",
@@ -1711,7 +1711,7 @@ def page_analyses_resultats():
                             margin=dict(t=20, b=40)
                         )
                         st.plotly_chart(fig_box, width="stretch")
-                    
+
                     with col4:
                         st.markdown("**Répartition par plateforme**")
                         source_counts = df["Source"].value_counts().reset_index()
@@ -1781,7 +1781,7 @@ def page_analyses_resultats():
                     else:
                         st.session_state.selected_cryptos = st.session_state.selected_cryptos + [name]
                     st.rerun()
-        
+
         selected = st.session_state.selected_cryptos
         if selected:
             st.caption(f"**{len(selected)} crypto(s) sélectionnée(s)** : {', '.join(selected)}")
@@ -1807,15 +1807,15 @@ def page_analyses_resultats():
                 date_from_crypto = st.date_input("Du", value=date.today() - timedelta(days=30), key="crypto_date_from")
             with d2:
                 date_to_crypto = st.date_input("Au", value=date.today(), key="crypto_date_to")
-        
+
         st.markdown("---")
         st.markdown("#### Modèle NLP")
         st.caption("Choisissez le modèle pour l'analyse de sentiment.")
-        
+
         # Initialiser le modèle sélectionné pour le mode crypto
         if "crypto_model" not in st.session_state:
             st.session_state.crypto_model = "FinBERT"
-        
+
         # Boutons modèle + bouton lancer (même layout que Analyse globale)
         m1, m2, m3 = st.columns([1, 1, 2])
         with m1:
@@ -1838,7 +1838,7 @@ def page_analyses_resultats():
                 st.rerun()
         with m3:
             run_crypto = st.button("Lancer la comparaison", type="primary", key="crypto_run", width="stretch")
-        
+
         model_crypto = st.session_state.crypto_model
 
         if run_crypto:
@@ -1856,11 +1856,11 @@ def page_analyses_resultats():
                     results = []
                     detailed_results = []  # Pour stocker les détails par post
                     bar = st.progress(0, text="Analyse...")
-                    
+
                     for i, name in enumerate(selected):
                         kw = cryptos[name]["keywords"]
                         subset = [p for p in posts if any(k in ((p.get("title") or "") + " " + (p.get("text") or "")).lower() for k in kw)]
-                        
+
                         scores = []
                         labels = {"Bullish": 0, "Bearish": 0, "Neutral": 0}
                         for p in subset:
@@ -1874,7 +1874,7 @@ def page_analyses_resultats():
                                     "Score": out["score"],
                                     "Label": out["label"]
                                 })
-                        
+
                         avg = sum(scores) / len(scores) if scores else None
                         total = sum(labels.values())
                         results.append({
@@ -1890,7 +1890,7 @@ def page_analyses_resultats():
                         })
                         bar.progress((i + 1) / len(selected))
                     bar.empty()
-                    
+
                     df = pd.DataFrame(results)
                     st.success(f"{len(selected)} cryptos analysées")
 
@@ -1899,7 +1899,7 @@ def page_analyses_resultats():
                     avg_score = df[df["Score"].notna()]["Score"].mean() if not df[df["Score"].notna()].empty else 0
                     total_bullish = df["Bullish"].sum()
                     total_bearish = df["Bearish"].sum()
-                    
+
                     m1, m2, m3, m4 = st.columns(4)
                     with m1:
                         render_metric_card("Posts analysés", f"{total_posts:,}")
@@ -1916,7 +1916,7 @@ def page_analyses_resultats():
                     plot_df = df[df["Score"].notna()].copy()
                     if not plot_df.empty:
                         col_chart1, col_chart2 = st.columns(2)
-                        
+
                         with col_chart1:
                             st.markdown("**Score moyen par crypto**")
                             fig_score = px.bar(plot_df, x="Crypto", y="Score",
@@ -1932,7 +1932,7 @@ def page_analyses_resultats():
                                 margin=dict(t=20, b=40)
                             )
                             st.plotly_chart(fig_score, width="stretch")
-                        
+
                         with col_chart2:
                             st.markdown("**Répartition des posts**")
                             fig_pie = px.pie(plot_df, values="Posts", names="Crypto",
@@ -1948,7 +1948,7 @@ def page_analyses_resultats():
                     # --- Graphique sentiment par crypto ---
                     if not plot_df.empty and len(plot_df) > 0:
                         st.markdown("**Répartition Bullish / Bearish / Neutral par crypto**")
-                        
+
                         # Préparer les données pour le stacked bar
                         sentiment_data = []
                         for _, row in df.iterrows():
@@ -1956,7 +1956,7 @@ def page_analyses_resultats():
                                 sentiment_data.append({"Crypto": row["Crypto"], "Sentiment": "Bullish", "Count": row["Bullish"]})
                                 sentiment_data.append({"Crypto": row["Crypto"], "Sentiment": "Neutral", "Count": row["Neutral"]})
                                 sentiment_data.append({"Crypto": row["Crypto"], "Sentiment": "Bearish", "Count": row["Bearish"]})
-                        
+
                         if sentiment_data:
                             df_sentiment = pd.DataFrame(sentiment_data)
                             fig_sentiment = px.bar(df_sentiment, x="Crypto", y="Count", color="Sentiment",
@@ -1993,7 +1993,7 @@ def page_scraping():
         <p style="color: #64748b; font-size: 0.9rem;">Collecte de données multi-sources</p>
     </div>
     """, unsafe_allow_html=True)
-    
+
     # Sources avec icônes (max = max des limites par méthode pour chaque plateforme)
     _max_for = lambda name: max(LIMITS[name].values()) if name in LIMITS else 500
     sources = {
@@ -2007,16 +2007,16 @@ def page_scraping():
         "GitHub": {"icon": "💻", "max": _max_for("GitHub"), "desc": "Issues/Discussions"},
         "4chan": {"icon": "💬", "max": _max_for("4chan"), "desc": "HTTP /biz/ (pas Selenium)"},
     }
-    
+
     # Sélection de la source - 3 plateformes par ligne
     if 'scrape_source' not in st.session_state:
         st.session_state.scrape_source = "Reddit"
     if 'show_more_platforms' not in st.session_state:
         st.session_state.show_more_platforms = False
-    
+
     sources_list = list(sources.items())
     num_rows = (len(sources_list) + 2) // 3  # Arrondir vers le haut (3 par ligne)
-    
+
     # Afficher les 2 premières lignes (6 plateformes)
     st.markdown('<div style="margin-bottom: 4px;"></div>', unsafe_allow_html=True)
     for row in range(2):
@@ -2049,7 +2049,7 @@ def page_scraping():
                         st.session_state.scrape_source = name
                         st.session_state.pop('scrape_results', None)
                         st.rerun()
-    
+
     # Bouton "Voir plus" / "Voir moins" et plateformes masquées
     if num_rows > 2:
         if st.session_state.show_more_platforms:
@@ -2098,21 +2098,21 @@ def page_scraping():
                          help="Afficher Bitcointalk, GitHub, 4chan"):
                 st.session_state.show_more_platforms = True
                 st.rerun()
-    
+
     st.markdown("---")
-    
+
     # Configuration selon la source
     source = st.session_state.scrape_source
-    
+
     st.markdown(f"### Configuration {source}")
-    
+
     if source == "Reddit":
         c1, c2 = st.columns(2)
         with c1:
             crypto = st.selectbox("Cryptomonnaie", list(CRYPTO_LIST.keys()), key="scr_crypto")
         with c2:
             limit = st.slider("Nombre de posts", 10, 1000, 100, key="scr_limit")
-        
+
         # Sélecteurs de date
         st.markdown("**Filtres de date (optionnel)**")
         c3, c4 = st.columns(2)
@@ -2120,12 +2120,12 @@ def page_scraping():
             start_date = st.date_input("Date de début", value=None, key="scr_reddit_start")
         with c4:
             end_date = st.date_input("Date de fin", value=None, key="scr_reddit_end")
-        
+
         st.info("**Méthode :** API HTTP. Récupération des posts par subreddit avec filtres de date optionnels.")
-        
+
         if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
             config = CRYPTO_LIST[crypto]
-            
+
             # Validation des dates
             today = date.today()
             if start_date and start_date > today:
@@ -2134,14 +2134,14 @@ def page_scraping():
             if end_date and end_date > today:
                 st.warning("⚠️ La date de fin est dans le futur. Les posts récents seront récupérés jusqu'à aujourd'hui.")
                 end_date = today
-            
+
             with st.spinner("Scraping Reddit en cours..."):
                 posts = scrape_reddit(
                     config['sub'], limit, method='http',
                     start_date=start_date.strftime('%Y-%m-%d') if start_date else None,
                     end_date=end_date.strftime('%Y-%m-%d') if end_date else None
                 )
-            
+
             # Message d'aide si aucun post
             if not posts:
                 if end_date and end_date < today:
@@ -2150,9 +2150,9 @@ def page_scraping():
                     st.warning(f"ℹ️ Aucun post récupéré dans la plage {start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d') if end_date else 'aujourd\'hui'}. Les scrapers récupèrent d'abord les posts les plus récents.")
                 else:
                     st.error("❌ Aucun post récupéré. Vérifiez le nom du subreddit et votre connexion.")
-            
+
             st.session_state.scrape_results = {"posts": posts, "source": "reddit", "crypto": crypto}
-    
+
     elif source == "Twitter":
         c1, c2 = st.columns(2)
         with c1:
@@ -2161,13 +2161,13 @@ def page_scraping():
         with c2:
             sort_mode = st.selectbox("Tri", ["top", "live"], format_func=lambda x: "Populaires" if x == "top" else "Récents", key="scr_sort")
             min_likes = st.number_input("Minimum de likes", 0, 10000, 0, key="scr_likes")
-        
+
         c1, c2 = st.columns(2)
         with c1:
             start_date = st.date_input("Date de début (optionnel)", value=None, key="scr_start")
         with c2:
             end_date = st.date_input("Date de fin (optionnel)", value=None, key="scr_end")
-        
+
         try_login = st.checkbox(
             "Tenter le login Twitter (identifiants .env)",
             value=False,
@@ -2175,7 +2175,7 @@ def page_scraping():
             help="Coche pour utiliser TWITTER_USERNAME/PASSWORD et la recherche avancée (jusqu'à 2000 tweets). Sans coche = profils publics uniquement (100 tweets)."
         )
         st.info("**Sans login :** profils publics (whale_alert, CoinDesk, etc.). **Avec login :** recherche avancée (tri, likes, dates).")
-        
+
         if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
             config = CRYPTO_LIST[crypto]
             with st.spinner("Scraping Twitter en cours..."):
@@ -2197,28 +2197,28 @@ def page_scraping():
                     st.info("💡 Conseils: Vérifiez que Chrome/ChromeDriver est installé, ou utilisez le mode Nitter (fallback automatique)")
                     posts = []
             st.session_state.scrape_results = {"posts": posts, "source": "twitter", "crypto": crypto}
-    
+
     elif source == "YouTube":
         try:
             from app.scrapers.youtube_scraper import scrape_youtube
             api_key = os.environ.get('YOUTUBE_API_KEY', '')
-            
+
             url = st.text_input("URL de la vidéo YouTube", placeholder="https://youtube.com/watch?v=...", key="scr_url")
-            
+
             c1, c2 = st.columns(2)
             with c1:
                 yt_max = max(LIMITS["YouTube"].values())
                 limit = st.slider("Nombre de commentaires", 10, yt_max, min(100, yt_max), key="scr_limit")
             with c2:
                 order = st.selectbox("Tri", ["relevance", "time"], format_func=lambda x: "Populaires" if x == "relevance" else "Récents", key="scr_order")
-            
+
             if api_key:
                 st.success("Clé API YouTube configurée")
             else:
                 st.warning("Clé API manquante - ajoutez YOUTUBE_API_KEY dans .env")
-            
+
             st.info("**Méthode :** API YouTube. Commentaires de la vidéo, tri par pertinence ou date.")
-            
+
             if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
                 if not url:
                     st.error("Veuillez entrer une URL YouTube")
@@ -2228,18 +2228,18 @@ def page_scraping():
                     st.session_state.scrape_results = {"posts": posts, "source": "youtube", "crypto": "YouTube"}
         except ImportError:
             st.error("Module YouTube non disponible")
-    
+
     elif source == "Telegram":
         c1, c2 = st.columns(2)
         with c1:
             channel = st.selectbox("Channel", list(TELEGRAM_CHANNELS.keys()), format_func=lambda x: f"@{x}", key="scr_channel")
         with c2:
             limit = st.slider("Nombre de messages", 10, 500, 100, key="scr_limit")
-        
+
         st.caption(f"Description: {TELEGRAM_CHANNELS[channel]}")
-        
+
         st.info("**Méthode :** Canaux publics (API). Récupération simple (< 30 msg) ou paginée pour plus de messages.")
-        
+
         if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
             with st.spinner("Scraping Telegram en cours..."):
                 try:
@@ -2247,7 +2247,7 @@ def page_scraping():
                         posts = scrape_telegram_paginated(channel, limit)
                     else:
                         posts = scrape_telegram_simple(channel, limit)
-                    
+
                     if not posts:
                         st.warning(f"⚠️ Aucun message récupéré pour @{channel}")
                         st.info("**Note :** Seuls les canaux publics fonctionnels sont disponibles dans la liste.")
@@ -2258,7 +2258,7 @@ def page_scraping():
                 except Exception as e:
                     st.error(f"❌ Erreur lors du scraping: {e}")
                     st.exception(e)
-    
+
     elif source == "StockTwits":
         c1, c2 = st.columns(2)
         with c1:
@@ -2266,7 +2266,7 @@ def page_scraping():
         with c2:
             max_limit = LIMITS["StockTwits"]["Selenium"]  # 1000 posts max
             limit = st.slider("Nombre de posts", 10, max_limit, min(100, max_limit), key="scr_limit")
-        
+
         # Sélecteurs de date
         st.markdown("**Filtres de date (optionnel)**")
         c3, c4 = st.columns(2)
@@ -2274,12 +2274,12 @@ def page_scraping():
             start_date = st.date_input("Date de début", value=None, key="scr_stocktwits_start")
         with c4:
             end_date = st.date_input("Date de fin", value=None, key="scr_stocktwits_end")
-        
+
         st.info("**Méthode :** Selenium (scroll). Les labels Bullish/Bearish sont inclus automatiquement.")
-        
+
         if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
             config = CRYPTO_LIST[crypto]
-            
+
             # Validation des dates
             today = date.today()
             if start_date and start_date > today:
@@ -2288,14 +2288,14 @@ def page_scraping():
             if end_date and end_date > today:
                 st.warning("⚠️ La date de fin est dans le futur. Les posts récents seront récupérés jusqu'à aujourd'hui.")
                 end_date = today
-            
+
             with st.spinner("Scraping StockTwits en cours..."):
                 posts = scrape_stocktwits(
                     config['stocktwits'], limit,
                     start_date=start_date.strftime('%Y-%m-%d') if start_date else None,
                     end_date=end_date.strftime('%Y-%m-%d') if end_date else None
                 )
-            
+
             # Message d'aide si aucun post
             if not posts:
                 if end_date and end_date < today:
@@ -2304,18 +2304,18 @@ def page_scraping():
                     st.warning(f"ℹ️ Aucun post récupéré dans la plage {start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d') if end_date else 'aujourd\'hui'}. Les scrapers récupèrent d'abord les posts les plus récents.")
                 else:
                     st.error("❌ Aucun post récupéré. Vérifiez votre connexion et que Selenium est installé.")
-            
+
             st.session_state.scrape_results = {"posts": posts, "source": "stocktwits", "crypto": crypto}
-    
+
     elif source == "4chan":
         c1, c2 = st.columns(2)
         with c1:
             crypto = st.selectbox("Cryptomonnaie", list(CRYPTO_LIST.keys()), key="scr_crypto")
         with c2:
             limit = st.slider("Nombre de posts", 10, 200, 50, key="scr_limit")
-        
+
         st.info("**Méthode :** HTTP /biz/. Discussions anonymes, pas de login requis.")
-        
+
         if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
             config = CRYPTO_LIST[crypto]
             with st.spinner("Scraping 4chan /biz/ en cours..."):
@@ -2326,16 +2326,16 @@ def page_scraping():
             else:
                 st.warning("⚠️ Aucun post récupéré")
             st.session_state.scrape_results = {"posts": posts, "source": "4chan", "crypto": crypto}
-    
+
     elif source == "Bitcointalk":
         c1, c2 = st.columns(2)
         with c1:
             crypto = st.selectbox("Cryptomonnaie", list(CRYPTO_LIST.keys()), key="scr_crypto")
         with c2:
             limit = st.slider("Nombre de posts", 10, 200, 50, key="scr_limit")
-        
+
         st.info("**Méthode :** HTTP. Forum crypto historique, pas de login requis.")
-        
+
         if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
             config = CRYPTO_LIST[crypto]
             with st.spinner("Scraping Bitcointalk en cours..."):
@@ -2346,16 +2346,16 @@ def page_scraping():
             else:
                 st.warning("⚠️ Aucun post récupéré")
             st.session_state.scrape_results = {"posts": posts, "source": "bitcointalk", "crypto": crypto}
-    
+
     elif source == "GitHub":
         c1, c2 = st.columns(2)
         with c1:
             crypto = st.selectbox("Cryptomonnaie", list(CRYPTO_LIST.keys()), key="scr_crypto")
         with c2:
             limit = st.slider("Nombre de posts", 10, 200, 50, key="scr_limit")
-        
+
         st.info("**Méthode :** API GitHub (gratuite). Issues et discussions de projets crypto.")
-        
+
         if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
             config = CRYPTO_LIST[crypto]
             with st.spinner("Scraping GitHub Issues en cours..."):
@@ -2366,16 +2366,16 @@ def page_scraping():
             else:
                 st.warning("⚠️ Aucun post récupéré")
             st.session_state.scrape_results = {"posts": posts, "source": "github", "crypto": crypto}
-    
+
     elif source == "Bluesky":
         c1, c2 = st.columns(2)
         with c1:
             crypto = st.selectbox("Cryptomonnaie", list(CRYPTO_LIST.keys()), key="scr_crypto")
         with c2:
             limit = st.slider("Nombre de posts", 10, 200, 50, key="scr_limit")
-        
+
         st.info("**Méthode :** AT Protocol (API). Configure BLUESKY_USERNAME et BLUESKY_APP_PASSWORD dans .env pour utiliser ton compte.")
-        
+
         if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
             config = CRYPTO_LIST[crypto]
             with st.spinner("Scraping Bluesky en cours..."):
@@ -2386,15 +2386,15 @@ def page_scraping():
             else:
                 st.warning("⚠️ Aucun post récupéré. Vérifie BLUESKY_USERNAME et BLUESKY_APP_PASSWORD dans .env.")
             st.session_state.scrape_results = {"posts": posts, "source": "bluesky", "crypto": crypto}
-    
+
     # Affichage des résultats
     st.markdown("---")
-    
+
     if 'scrape_results' in st.session_state and st.session_state.scrape_results:
         data = st.session_state.scrape_results
         posts = data['posts']
         source_result = data.get('source', '')
-        
+
         if not posts:
             if source_result == "bluesky":
                 st.info("**Bluesky** : aucun post trouvé. Vérifie BLUESKY_USERNAME et BLUESKY_APP_PASSWORD dans .env.")
@@ -2404,7 +2404,7 @@ def page_scraping():
             # Stats
             labeled = sum(1 for p in posts if p.get('human_label'))
             with_score = sum(1 for p in posts if p.get('score', 0) > 0)
-            
+
             st.markdown(f"""
             <div style="display: flex; gap: 16px; margin-bottom: 16px;">
                 <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.1)); padding: 14px 24px; border-radius: 12px; border: 1px solid rgba(99, 102, 241, 0.3);">
@@ -2421,7 +2421,7 @@ def page_scraping():
                 </div>
             </div>
             """, unsafe_allow_html=True)
-            
+
             # Actions
             c1, c2, c3 = st.columns(3)
             with c1:
@@ -2435,10 +2435,10 @@ def page_scraping():
             with c3:
                 csv_data = pd.DataFrame(posts).to_csv(index=False)
                 st.download_button("Exporter CSV", csv_data, f"{data['source']}_data.csv", width="stretch")
-            
+
             # Tableau
             st.markdown("<br>", unsafe_allow_html=True)
-            
+
             def safe_date(val):
                 if not val:
                     return '-'
@@ -2448,7 +2448,7 @@ def page_scraping():
                     except:
                         return '-'
                 return str(val)[:10] if len(str(val)) > 10 else str(val)
-            
+
             df = pd.DataFrame([{
                 "Texte": (p.get('title') or p.get('text', ''))[:100] + "..." if len(p.get('title') or p.get('text', '')) > 100 else (p.get('title') or p.get('text', '')),
                 "Score": p.get('score', 0),
@@ -2456,9 +2456,9 @@ def page_scraping():
                 "Auteur": (p.get('author') or '-')[:15],
                 "Date": safe_date(p.get('created_utc'))
             } for p in posts[:50]])
-            
+
             st.dataframe(df, width="stretch", height=400)
-            
+
             if len(posts) > 50:
                 st.caption(f"Affichage de 50 posts sur {len(posts)}")
     else:
@@ -2485,9 +2485,9 @@ def main():
             <div style="font-size: 0.75rem; color: #64748b;">MoSEF 2025-2026</div>
         </div>
         """, unsafe_allow_html=True)
-        
+
         st.markdown("---")
-        
+
         # Dashboard masqué (page conservée dans le code)
         if st.session_state.get("nav_radio") == "Dashboard":
             st.session_state.nav_radio = "Accueil"
@@ -2499,7 +2499,7 @@ def main():
             key="nav_radio",
             label_visibility="collapsed"
         )
-    
+
     if "Accueil" in page:
         page_accueil()
     elif "Dashboard" in page:

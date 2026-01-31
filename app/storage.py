@@ -51,7 +51,7 @@ def _get_postgres_conn():
     
     if db_host and db_password:
         try:
-            print(f"🔌 Connexion PostgreSQL via variables d'environnement...")
+            print("Connexion PostgreSQL via variables d'environnement...")
             conn = psycopg2.connect(
                 host=db_host,
                 port=int(db_port),
@@ -60,15 +60,15 @@ def _get_postgres_conn():
                 password=db_password,
                 sslmode="require"
             )
-            print("✅ Connexion PostgreSQL réussie !")
+            print("Connexion PostgreSQL reussie !")
             return conn
         except ImportError:
-            print("❌ psycopg2 non installé. Installe avec: pip install psycopg2-binary")
+            print("psycopg2 non installe. Installe avec: pip install psycopg2-binary")
             return None
         except Exception as e:
-            print(f"⚠️  Erreur connexion avec variables: {e}")
+            print(f"Erreur connexion avec variables: {e}")
             # Continue pour essayer DATABASE_URL
-    
+
     # Fallback: DATABASE_URL (depuis .env ou Streamlit Secrets)
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
@@ -78,30 +78,30 @@ def _get_postgres_conn():
             database_url = st.secrets.get("DATABASE_URL")
         except Exception:
             pass
-    
+
     if not database_url:
-        print("⚠️  Aucune config PostgreSQL trouvée - utilisation de SQLite local")
+        print("Aucune config PostgreSQL trouvee - utilisation de SQLite local")
         return None
-    
+
     # Enlever les guillemets si présents
     database_url = database_url.strip('"').strip("'")
-    
+
     # Dans Streamlit Secrets, les $$ doivent être doublés ($$$$)
     # On les convertit en $$ pour l'URL
     if "$$$$" in database_url:
         database_url = database_url.replace("$$$$", "$$")
-    
+
     try:
         # Si l'URL commence par postgres://, convertir en postgresql://
         if database_url.startswith("postgres://"):
             database_url = database_url.replace("postgres://", "postgresql://", 1)
-        
-        print(f"🔌 Tentative de connexion PostgreSQL via DATABASE_URL...")
-        
+
+        print("Tentative de connexion PostgreSQL via DATABASE_URL...")
+
         # Essayer avec l'URL telle quelle d'abord
         try:
             conn = psycopg2.connect(database_url, sslmode="require")
-            print("✅ Connexion PostgreSQL réussie !")
+            print("Connexion PostgreSQL reussie !")
             return conn
         except Exception:
             # Si ça échoue, essayer de parser et utiliser paramètres séparés
@@ -114,14 +114,14 @@ def _get_postgres_conn():
                 password=parsed.password or '',
                 sslmode="require"
             )
-            print("✅ Connexion PostgreSQL réussie (via paramètres) !")
+            print("Connexion PostgreSQL reussie (via parametres) !")
             return conn
-            
+
     except ImportError:
-        print("❌ psycopg2 non installé. Installe avec: pip install psycopg2-binary")
+        print("psycopg2 non installe. Installe avec: pip install psycopg2-binary")
         return None
     except Exception as e:
-        print(f"❌ Erreur connexion PostgreSQL: {e}")
+        print(f"Erreur connexion PostgreSQL: {e}")
         safe_url = database_url.split("@")[-1] if "@" in database_url else database_url[:50]
         print(f"   Host: {safe_url}")
         print(f"   Vérifie: 1) Le mot de passe est correct 2) Le projet Supabase est actif")

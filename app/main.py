@@ -215,7 +215,6 @@ async def scrape(req: ScrapeRequest):
     Scrape les posts d'une plateforme pour une ou plusieurs cryptos
 
     - Une seule plateforme a la fois (pour eviter les bans)
-    - Plusieurs cryptos possibles
     """
     start = time.time()
 

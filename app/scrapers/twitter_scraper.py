@@ -283,58 +283,71 @@ def human_scroll(driver, distance=None):
     human_delay(0.3, 0.8)
 
 
+def _find_chrome_binary():
+    """Trouve le binaire Chrome SYSTÈME uniquement (évite Chrome for Testing qui plante)."""
+    paths = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Google Chrome 2.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        "/usr/bin/google-chrome",
+        "/usr/bin/chromium",
+    ]
+    for path in paths:
+        if os.path.isfile(path):
+            return path
+    return None
+
+
 def setup_driver():
-    """Configure Chrome avec options anti-detection"""
+    """Configure Chrome avec options anti-detection et chemin binaire détecté."""
+    import tempfile
     options = Options()
-    
-    # Mode headless
+    chrome_binary = _find_chrome_binary()
+    if not chrome_binary:
+        print("Erreur Chrome: aucun Chrome système trouvé. Installez Google Chrome (ou Chrome 2) dans Applications.")
+        return None
+    options.binary_location = chrome_binary
+
+    # Profil temporaire propre (évite conflit avec ton Chrome ouvert)
+    temp_profile = tempfile.mkdtemp(prefix="selenium_chrome_")
+    options.add_argument(f"--user-data-dir={temp_profile}")
+
+    # Headless + options anti-plantage
     options.add_argument("--headless=new")
-    
-    # Options de base
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
+    options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-background-networking")
+    options.add_argument("--disable-default-apps")
+    options.add_argument("--disable-sync")
+    options.add_argument("--no-first-run")
+    options.add_argument("--disable-renderer-backgrounding")
+    options.add_argument("--disable-features=VizDisplayCompositor")
     options.add_argument("--window-size=1920,1080")
-    
-    # Anti-detection
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option('useAutomationExtension', False)
-    
-    # User agents realistes
+    options.add_experimental_option("useAutomationExtension", False)
+    options.add_argument("--remote-debugging-port=0")
+
     user_agents = [
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
     ]
     options.add_argument(f"--user-agent={random.choice(user_agents)}")
-    
-    # Preferences pour paraitre plus reel
     prefs = {
         "profile.default_content_setting_values.notifications": 2,
         "credentials_enable_service": False,
-        "profile.password_manager_enabled": False
+        "profile.password_manager_enabled": False,
     }
     options.add_experimental_option("prefs", prefs)
-    
+
     try:
         driver = webdriver.Chrome(options=options)
-        
-        # Override navigator.webdriver
-        driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
-            'source': '''
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined
-                });
-                Object.defineProperty(navigator, 'plugins', {
-                    get: () => [1, 2, 3, 4, 5]
-                });
-                Object.defineProperty(navigator, 'languages', {
-                    get: () => ['en-US', 'en']
-                });
-            '''
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
         })
-        
         return driver
     except Exception as e:
         print(f"Erreur Chrome: {e}")
@@ -351,7 +364,8 @@ def scrape_twitter(
     min_replies: int = None,
     start_date: str = None,
     end_date: str = None,
-    sort_mode: str = "top"  # "top" (populaires) ou "live" (recents)
+    sort_mode: str = "top",  # "top" (populaires) ou "live" (recents)
+    force_login: bool = False,  # True = tenter le login même si TWITTER_NO_LOGIN est set
 ) -> list:
     """
     Scrape Twitter/X pour les tweets crypto
@@ -385,9 +399,14 @@ def scrape_twitter(
     if not password:
         password = os.environ.get("TWITTER_PASSWORD")
     
+    # Forcer le mode sans login sauf si force_login=True (pour tester le login depuis l'app)
+    if not force_login and os.environ.get("TWITTER_NO_LOGIN", "").strip().lower() in ("1", "true", "yes", "oui"):
+        print("Twitter: Mode sans login (profils publics)")
+        return scrape_twitter_no_login(query, limit)
+
     # Verifier si on a des cookies sauvegardes
     cookies_exist = COOKIES_FILE.exists()
-    
+
     # Si on a des cookies OU des credentials, utiliser le mode login (Jose)
     if cookies_exist or (username and password):
         print(f"Twitter: Mode login (cookies={cookies_exist}, creds={bool(username and password)})")
@@ -573,20 +592,158 @@ def scrape_twitter_with_login(
     return posts
 
 
+def scrape_nitter_rss(query: str, limit: int) -> list:
+    """Nitter via flux RSS - plus fiable que le HTML quand dispo."""
+    try:
+        import requests
+        import xml.etree.ElementTree as ET
+    except ImportError:
+        return []
+    search_q = urllib.parse.quote(query)
+    instances = [
+        "https://nitter.poast.org",
+        "https://nitter.space",
+        "https://nitter.privacydev.net",
+    ]
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/rss+xml, application/xml, text/xml",
+    }
+    posts = []
+    for base in instances:
+        try:
+            url = f"{base}/search/rss?f=tweets&q={search_q}"
+            r = requests.get(url, headers=headers, timeout=12)
+            if r.status_code != 200:
+                continue
+            root = ET.fromstring(r.text)
+            ns = {"dc": "http://purl.org/dc/elements/1.1/", "atom": "http://www.w3.org/2005/Atom"}
+            items = root.findall(".//item") or root.findall(".//{http://www.w3.org/2005/Atom}entry")
+            for item in items[:limit]:
+                try:
+                    title_el = item.find("title")
+                    link_el = item.find("link")
+                    desc_el = item.find("description") or item.find("{http://www.w3.org/2005/Atom}content")
+                    text = (title_el.text if title_el is not None and title_el.text else "") or (desc_el.text if desc_el is not None and desc_el.text else "")
+                    if not text or len(text) < 5:
+                        continue
+                    href = (link_el.text if link_el is not None and link_el.text else "") or (link_el.get("href", "") if link_el is not None else "")
+                    tweet_id = re.search(r"/status/(\d+)", href).group(1) if re.search(r"/status/(\d+)", href) else str(hash(text[:50]))
+                    creator = item.find("dc:creator", ns) or item.find("{http://purl.org/dc/elements/1.1/}creator")
+                    username = (creator.text.strip() if creator is not None and creator.text else "") or ""
+                    posts.append({
+                        "id": tweet_id,
+                        "title": text[:500],
+                        "text": "",
+                        "score": 0,
+                        "likes": 0,
+                        "retweets": 0,
+                        "username": username,
+                        "created_utc": None,
+                        "source": "twitter",
+                        "method": "nitter_rss",
+                        "human_label": None,
+                    })
+                except Exception:
+                    continue
+            if posts:
+                print(f"Twitter: Nitter RSS OK ({base}), {len(posts)} tweets")
+                return posts[:limit]
+        except Exception:
+            continue
+    return posts[:limit]
+
+
+def scrape_nitter_http(query: str, limit: int) -> list:
+    """
+    Nitter via HTTP (requests) - pas besoin de Chrome.
+    Essaie d'abord le flux RSS, puis la page HTML.
+    """
+    try:
+        import requests
+    except ImportError:
+        return []
+    # 1. RSS en premier (plus fiable)
+    posts = scrape_nitter_rss(query, limit)
+    if posts:
+        return posts
+    # 2. Page HTML
+    posts = []
+    seen_ids = set()
+    search_q = urllib.parse.quote(query)
+    instances = [
+        "https://nitter.poast.org",
+        "https://nitter.space",
+        "https://nitter.privacydev.net",
+    ]
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    for base in instances:
+        if len(posts) >= limit:
+            break
+        try:
+            url = f"{base}/search?f=tweets&q={search_q}"
+            r = requests.get(url, headers=headers, timeout=15)
+            if r.status_code != 200 or "error" in r.text.lower() or "502" in r.text or "503" in r.text:
+                continue
+            soup = BeautifulSoup(r.text, "lxml")
+            items = (
+                soup.select(".timeline-item")
+                or soup.select(".tweet-body")
+                or soup.select("div.tweet")
+                or soup.select("article")
+                or soup.select("[data-status-id]")
+            )
+            for item in items[:limit * 2]:
+                try:
+                    text_el = item.select_one(".tweet-content") or item.select_one(".tweet-body") or item.select_one(".content") or item.select_one("p")
+                    text = (text_el.get_text(strip=True) if text_el else "") or ""
+                    if not text or len(text) < 10 or "nitter" in text.lower():
+                        continue
+                    link = item.select_one("a[href*='/status/']") or item.select_one(".tweet-link")
+                    href = link.get("href", "") if link else ""
+                    tweet_id = re.search(r"/status/(\d+)", href).group(1) if re.search(r"/status/(\d+)", href) else str(hash(text[:50]))
+                    if tweet_id in seen_ids:
+                        continue
+                    seen_ids.add(tweet_id)
+                    username = ""
+                    u = item.select_one(".username") or item.select_one(".fullname") or item.select_one("a[href^='/']")
+                    if u:
+                        username = u.get_text(strip=True)
+                    posts.append({
+                        "id": tweet_id,
+                        "title": text[:500],
+                        "text": "",
+                        "score": 0,
+                        "likes": 0,
+                        "retweets": 0,
+                        "username": username,
+                        "created_utc": None,
+                        "source": "twitter",
+                        "method": "nitter_http",
+                        "human_label": None,
+                    })
+                    if len(posts) >= limit:
+                        break
+                except Exception:
+                    continue
+            if posts:
+                print(f"Twitter: Nitter HTTP OK ({base}), {len(posts)} tweets")
+                return posts[:limit]
+        except Exception:
+            continue
+    return posts[:limit]
+
+
 def scrape_twitter_no_login(query: str, limit: int) -> list:
     """
-    Scraping Twitter sans login: Nitter en priorité, puis profils publics.
-    X exige de plus en plus le login; Nitter (frontend communautaire) peut encore donner des résultats.
+    Scraping Twitter sans login: profils publics uniquement (Nitter désactivé, trop instable).
     """
     limit = min(limit, LIMITS["no_login"])
-    # 1. Nitter en priorité (instances communautaires, pas de login)
-    print("Twitter: Essai Nitter (fallback sans login)...")
-    posts = scrape_nitter(query, limit)
-    if posts:
-        print(f"Twitter: Nitter a renvoyé {len(posts)} tweets")
-        return posts[:limit]
-    # 2. Profils publics (souvent bloqué par X: is_login_wall)
-    print("Twitter: Nitter indisponible, essai profils publics...")
+    print("Twitter: Mode profils publics (sans login)...")
     crypto_accounts = get_crypto_accounts(query)
     all_posts = []
     seen_ids = set()

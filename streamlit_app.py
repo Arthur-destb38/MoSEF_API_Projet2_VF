@@ -615,7 +615,7 @@ def page_accueil():
                             yaxis=dict(showgrid=True, gridcolor="rgba(99,102,241,0.1)", tickfont=dict(size=9), color="#94a3b8"),
                             showlegend=False
                         )
-                        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False}, key=f"accueil_chart_{cid}")
+                        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False}, key=f"accueil_chart_{cid}")
                     st.markdown('<div style="margin-bottom: 1rem;"></div>', unsafe_allow_html=True)
     else:
         st.markdown("""
@@ -772,7 +772,7 @@ def page_dashboard():
         </div>
         """, unsafe_allow_html=True)
         
-        analyze = st.button("Analyser", use_container_width=True, key="dash_analyze")
+        analyze = st.button("Analyser", width="stretch", key="dash_analyze")
     
     # Build Twitter options if applicable
     twitter_opts = None
@@ -900,7 +900,7 @@ def display_results(results, source, model):
             margin=dict(t=20, b=20, l=20, r=20),
             height=300
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     
     with col2:
         fig = go.Figure(data=[go.Histogram(
@@ -919,7 +919,7 @@ def display_results(results, source, model):
             margin=dict(t=20, b=40, l=40, r=20),
             height=300
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     
     st.markdown("### Détail des posts")
     
@@ -930,11 +930,11 @@ def display_results(results, source, model):
         "Label": r.get("human_label", "-")
     } for r in results])
     
-    st.dataframe(df, use_container_width=True, height=300)
+    st.dataframe(df, width="stretch", height=300)
     
     col1, col2 = st.columns(2)
     with col1:
-        st.download_button("Télécharger CSV", df.to_csv(index=False), "sentiment.csv", use_container_width=True)
+        st.download_button("Télécharger CSV", df.to_csv(index=False), "sentiment.csv", width="stretch")
 
 
 def page_documentation():
@@ -1048,7 +1048,7 @@ def page_documentation():
     with col_analyze:
         st.markdown("")
         st.markdown("")
-        run_compare = st.button("Comparer", type="primary", use_container_width=True, key="doc_compare_btn")
+        run_compare = st.button("Comparer", type="primary", width="stretch", key="doc_compare_btn")
     
     # Zone "Texte à analyser" uniquement en mode saisie manuelle
     if sample_choice == manual_entry:
@@ -1161,11 +1161,51 @@ def page_stored_data():
     if "data_viz_tab" not in st.session_state:
         st.session_state.data_viz_tab = "overview"
 
+    # Même style de boutons que la page Analyses des résultats : non-sélectionnés = gris plat, sélectionnés = violet enfoncé
+    st.markdown("""
+    <style>
+    /* Boutons NON sélectionnés (secondary) = gris plat */
+    [data-testid="stHorizontalBlock"] button[kind="secondary"] {
+        border-radius: 9999px !important;
+        padding: 10px 16px !important;
+        font-size: 0.82rem !important;
+        font-weight: 500 !important;
+        border: 1px solid rgba(100, 116, 139, 0.5) !important;
+        background: rgba(30, 41, 59, 0.6) !important;
+        color: #94a3b8 !important;
+        box-shadow: none !important;
+        transition: all 0.15s ease !important;
+    }
+    [data-testid="stHorizontalBlock"] button[kind="secondary"]:hover {
+        background: rgba(51, 65, 85, 0.8) !important;
+        border-color: rgba(148, 163, 184, 0.6) !important;
+        color: #e2e8f0 !important;
+    }
+    /* Boutons SÉLECTIONNÉS (primary) = violet enfoncé */
+    [data-testid="stHorizontalBlock"] button[kind="primary"] {
+        border-radius: 9999px !important;
+        padding: 10px 16px !important;
+        font-size: 0.82rem !important;
+        font-weight: 600 !important;
+        border: 2px solid #8b5cf6 !important;
+        background: linear-gradient(180deg, #4c1d95 0%, #5b21b6 100%) !important;
+        color: #e9d5ff !important;
+        box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.5), 0 0 12px rgba(139, 92, 246, 0.4) !important;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4) !important;
+        transition: all 0.15s ease !important;
+    }
+    [data-testid="stHorizontalBlock"] button[kind="primary"]:hover {
+        background: linear-gradient(180deg, #5b21b6 0%, #6d28d9 100%) !important;
+        box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.5), 0 0 18px rgba(139, 92, 246, 0.55) !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         if st.button(
             "Répartition par source",
-            use_container_width=True,
+            width="stretch",
             key="btn_overview",
             type="primary" if st.session_state.data_viz_tab == "overview" else "secondary"
         ):
@@ -1174,7 +1214,7 @@ def page_stored_data():
     with col2:
         if st.button(
             "Source × Méthode",
-            use_container_width=True,
+            width="stretch",
             key="btn_sources",
             type="primary" if st.session_state.data_viz_tab == "sources" else "secondary"
         ):
@@ -1183,7 +1223,7 @@ def page_stored_data():
     with col3:
         if st.button(
             "Évolution temporelle",
-            use_container_width=True,
+            width="stretch",
             key="btn_timeline",
             type="primary" if st.session_state.data_viz_tab == "timeline" else "secondary"
         ):
@@ -1192,7 +1232,7 @@ def page_stored_data():
     with col4:
         if st.button(
             "Publication des posts",
-            use_container_width=True,
+            width="stretch",
             key="btn_publications",
             type="primary" if st.session_state.data_viz_tab == "publications" else "secondary"
         ):
@@ -1218,7 +1258,7 @@ def page_stored_data():
                 font_color="#e0e7ff",
                 legend_font_color="#e0e7ff"
             )
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, width="stretch")
         st.markdown("---")
         st.markdown("**💡 Interprétation** — La répartition par source montre quelles plateformes alimentent le plus votre base. Une source dominante (ex. Reddit) indique un biais vers ce type de discours ; une répartition plus équilibrée donne un échantillon plus diversifié pour l’analyse de sentiment crypto.")
 
@@ -1238,7 +1278,7 @@ def page_stored_data():
                 font_color="#e0e7ff",
                 legend_font_color="#e0e7ff"
             )
-            st.plotly_chart(fig_bar, use_container_width=True)
+            st.plotly_chart(fig_bar, width="stretch")
         st.markdown("---")
         st.markdown("**💡 Interprétation** — Chaque source peut être collectée via plusieurs méthodes (scraper, selenium, api…). Les barres groupées permettent de voir quelle méthode est la plus utilisée par source et d’identifier d’éventuels déséquilibres ou sources à renforcer.")
 
@@ -1261,7 +1301,7 @@ def page_stored_data():
                     paper_bgcolor="rgba(0,0,0,0)",
                     font_color="#e0e7ff"
                 )
-                st.plotly_chart(fig_time, use_container_width=True)
+                st.plotly_chart(fig_time, width="stretch")
                 st.markdown("---")
                 st.markdown("**💡 Interprétation** — La courbe reflète l’activité de collecte dans le temps. Les pics correspondent à des sessions de scraping intenses ; une base régulièrement alimentée donne une série plus lisse et un échantillon temporellement plus représentatif.")
             else:
@@ -1297,7 +1337,7 @@ def page_stored_data():
                     showlegend=False
                 )
                 fig_pub.update_coloraxes(showscale=False)
-                st.plotly_chart(fig_pub, use_container_width=True)
+                st.plotly_chart(fig_pub, width="stretch")
             else:
                 st.caption("Aucune date de publication exploitable dans l'échantillon (created_utc absent ou invalide).")
         else:
@@ -1324,7 +1364,7 @@ def page_stored_data():
     if posts:
         st.success(f"{len(posts)} posts trouvés")
         df = pd.DataFrame(posts)
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df, width="stretch")
 
         st.markdown("#### Exporter les Données")
         col1, col2 = st.columns(2)
@@ -1395,7 +1435,7 @@ def page_analyses_resultats():
     with col1:
         if st.button(
             "Analyse globale",
-            use_container_width=True,
+            width="stretch",
             key="btn_analysis_global",
             type="primary" if st.session_state.analysis_mode == "global" else "secondary"
         ):
@@ -1404,7 +1444,7 @@ def page_analyses_resultats():
     with col2:
         if st.button(
             "Par crypto",
-            use_container_width=True,
+            width="stretch",
             key="btn_analysis_crypto",
             type="primary" if st.session_state.analysis_mode == "crypto" else "secondary"
         ):
@@ -1478,7 +1518,7 @@ def page_analyses_resultats():
                 if st.button(
                     src,
                     key=f"glob_src_{src}",
-                    use_container_width=True,
+                    width="stretch",
                     type="primary" if is_selected else "secondary"
                 ):
                     if src in st.session_state.glob_sources:
@@ -1535,7 +1575,7 @@ def page_analyses_resultats():
             if st.button(
                 "FinBERT",
                 key="btn_finbert",
-                use_container_width=True,
+                width="stretch",
                 type="primary" if st.session_state.glob_model == "FinBERT" else "secondary"
             ):
                 st.session_state.glob_model = "FinBERT"
@@ -1544,13 +1584,13 @@ def page_analyses_resultats():
             if st.button(
                 "CryptoBERT",
                 key="btn_cryptobert",
-                use_container_width=True,
+                width="stretch",
                 type="primary" if st.session_state.glob_model == "CryptoBERT" else "secondary"
             ):
                 st.session_state.glob_model = "CryptoBERT"
                 st.rerun()
         with m3:
-            run_global = st.button("Lancer l'analyse", type="primary", key="glob_run", use_container_width=True)
+            run_global = st.button("Lancer l'analyse", type="primary", key="glob_run", width="stretch")
         
         model = st.session_state.glob_model
 
@@ -1635,7 +1675,7 @@ def page_analyses_resultats():
                             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
                             margin=dict(t=40, b=40)
                         )
-                        st.plotly_chart(fig_hist, use_container_width=True)
+                        st.plotly_chart(fig_hist, width="stretch")
                     
                     with col2:
                         st.markdown("**Répartition des sentiments**")
@@ -1652,7 +1692,7 @@ def page_analyses_resultats():
                             margin=dict(t=40, b=40)
                         )
                         fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-                        st.plotly_chart(fig_pie, use_container_width=True)
+                        st.plotly_chart(fig_pie, width="stretch")
 
                     # --- 2 graphiques côte à côte : Box plot + Camembert par plateforme ---
                     col3, col4 = st.columns(2)
@@ -1670,7 +1710,7 @@ def page_analyses_resultats():
                             showlegend=False,
                             margin=dict(t=20, b=40)
                         )
-                        st.plotly_chart(fig_box, use_container_width=True)
+                        st.plotly_chart(fig_box, width="stretch")
                     
                     with col4:
                         st.markdown("**Répartition par plateforme**")
@@ -1684,7 +1724,7 @@ def page_analyses_resultats():
                             margin=dict(t=20, b=40)
                         )
                         fig_platform.update_traces(textposition='inside', textinfo='percent+label')
-                        st.plotly_chart(fig_platform, use_container_width=True)
+                        st.plotly_chart(fig_platform, width="stretch")
 
                     # --- Répartition par source (si plusieurs sources) ---
                     if df["Source"].nunique() > 1:
@@ -1701,13 +1741,13 @@ def page_analyses_resultats():
                             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
                             margin=dict(t=40, b=40)
                         )
-                        st.plotly_chart(fig_source, use_container_width=True)
+                        st.plotly_chart(fig_source, width="stretch")
 
                     # --- Tableau des posts ---
                     st.markdown("**Échantillon de posts analysés**")
                     display_df = df[["Texte", "Score", "Label", "Source"]].head(50).copy()
                     display_df["Score"] = display_df["Score"].apply(lambda x: f"{x:+.3f}")
-                    st.dataframe(display_df, use_container_width=True, height=300)
+                    st.dataframe(display_df, width="stretch", height=300)
 
                     st.markdown("---")
                     st.markdown("**💡 Interprétation** — Un score moyen positif indique un sentiment plutôt haussier ; négatif, plutôt baissier. Le box plot montre la dispersion des scores pour chaque sentiment. Si plusieurs sources sont analysées, le graphique par source permet de comparer les tendances.")
@@ -1733,7 +1773,7 @@ def page_analyses_resultats():
                 if st.button(
                     f"{icon} {name}",
                     key=f"crypto_btn_{name}",
-                    use_container_width=True,
+                    width="stretch",
                     type="primary" if is_selected else "secondary"
                 ):
                     if name in st.session_state.selected_cryptos:
@@ -1782,7 +1822,7 @@ def page_analyses_resultats():
             if st.button(
                 "FinBERT",
                 key="btn_crypto_finbert",
-                use_container_width=True,
+                width="stretch",
                 type="primary" if st.session_state.crypto_model == "FinBERT" else "secondary"
             ):
                 st.session_state.crypto_model = "FinBERT"
@@ -1791,13 +1831,13 @@ def page_analyses_resultats():
             if st.button(
                 "CryptoBERT",
                 key="btn_crypto_cryptobert",
-                use_container_width=True,
+                width="stretch",
                 type="primary" if st.session_state.crypto_model == "CryptoBERT" else "secondary"
             ):
                 st.session_state.crypto_model = "CryptoBERT"
                 st.rerun()
         with m3:
-            run_crypto = st.button("Lancer la comparaison", type="primary", key="crypto_run", use_container_width=True)
+            run_crypto = st.button("Lancer la comparaison", type="primary", key="crypto_run", width="stretch")
         
         model_crypto = st.session_state.crypto_model
 
@@ -1891,7 +1931,7 @@ def page_analyses_resultats():
                                 showlegend=False,
                                 margin=dict(t=20, b=40)
                             )
-                            st.plotly_chart(fig_score, use_container_width=True)
+                            st.plotly_chart(fig_score, width="stretch")
                         
                         with col_chart2:
                             st.markdown("**Répartition des posts**")
@@ -1903,7 +1943,7 @@ def page_analyses_resultats():
                                 margin=dict(t=20, b=40)
                             )
                             fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-                            st.plotly_chart(fig_pie, use_container_width=True)
+                            st.plotly_chart(fig_pie, width="stretch")
 
                     # --- Graphique sentiment par crypto ---
                     if not plot_df.empty and len(plot_df) > 0:
@@ -1930,13 +1970,13 @@ def page_analyses_resultats():
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
                                 margin=dict(t=40, b=40)
                             )
-                            st.plotly_chart(fig_sentiment, use_container_width=True)
+                            st.plotly_chart(fig_sentiment, width="stretch")
 
                     # --- Tableau détaillé ---
                     st.markdown("**Tableau récapitulatif**")
                     display_df = df[["Crypto", "Posts", "Score", "Bullish", "Bearish", "Neutral"]].copy()
                     display_df["Score"] = display_df["Score"].apply(lambda x: f"{x:+.3f}" if x is not None and not (isinstance(x, float) and np.isnan(x)) else "—")
-                    st.dataframe(display_df, use_container_width=True, hide_index=True)
+                    st.dataframe(display_df, width="stretch", hide_index=True)
 
                     st.markdown("---")
                     st.markdown("**💡 Interprétation** — Un score plus élevé pour une crypto reflète un discours plus haussier dans les posts qui la mentionnent. Le graphique empilé montre la répartition des sentiments. Une crypto avec beaucoup de « Bullish » et peu de « Bearish » indique un consensus positif.")
@@ -2005,7 +2045,7 @@ def page_scraping():
                     </div>
                     """, unsafe_allow_html=True)
                     btn_label = "Actif" if selected else "Sélectionner"
-                    if st.button(btn_label, key=f"src_{name}", use_container_width=True, disabled=selected):
+                    if st.button(btn_label, key=f"src_{name}", width="stretch", disabled=selected):
                         st.session_state.scrape_source = name
                         st.session_state.pop('scrape_results', None)
                         st.rerun()
@@ -2041,20 +2081,20 @@ def page_scraping():
                             </div>
                             """, unsafe_allow_html=True)
                             btn_label = "Actif" if selected else "Sélectionner"
-                            if st.button(btn_label, key=f"src_{name}_more", use_container_width=True, disabled=selected):
+                            if st.button(btn_label, key=f"src_{name}_more", width="stretch", disabled=selected):
                                 st.session_state.scrape_source = name
                                 st.session_state.pop('scrape_results', None)
                                 st.rerun()
             # Bouton "Voir moins" en bas — pleine largeur, style discret (CSS .toggle-platforms-zone)
             st.markdown('<div class="toggle-platforms-zone" style="margin-top: 10px; margin-bottom: 6px;"></div>', unsafe_allow_html=True)
-            if st.button("▲ Voir moins", use_container_width=True, key="toggle_platforms",
+            if st.button("▲ Voir moins", width="stretch", key="toggle_platforms",
                          help="Masquer Bitcointalk, GitHub, 4chan"):
                 st.session_state.show_more_platforms = False
                 st.rerun()
         else:
             # Quand replié : bouton "Voir plus" pleine largeur, style discret
             st.markdown('<div class="toggle-platforms-zone" style="margin-top: 12px; margin-bottom: 6px;"></div>', unsafe_allow_html=True)
-            if st.button("▼ Voir plus", use_container_width=True, key="toggle_platforms",
+            if st.button("▼ Voir plus", width="stretch", key="toggle_platforms",
                          help="Afficher Bitcointalk, GitHub, 4chan"):
                 st.session_state.show_more_platforms = True
                 st.rerun()
@@ -2083,7 +2123,7 @@ def page_scraping():
         
         st.info("**Méthode :** API HTTP. Récupération des posts par subreddit avec filtres de date optionnels.")
         
-        if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
+        if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
             config = CRYPTO_LIST[crypto]
             
             # Validation des dates
@@ -2128,9 +2168,15 @@ def page_scraping():
         with c2:
             end_date = st.date_input("Date de fin (optionnel)", value=None, key="scr_end")
         
-        st.info("**Méthode :** Selenium ou Nitter. Tri par popularité ou récents, filtre par nombre de likes.")
+        try_login = st.checkbox(
+            "Tenter le login Twitter (identifiants .env)",
+            value=False,
+            key="scr_twitter_login",
+            help="Coche pour utiliser TWITTER_USERNAME/PASSWORD et la recherche avancée (jusqu'à 2000 tweets). Sans coche = profils publics uniquement (100 tweets)."
+        )
+        st.info("**Sans login :** profils publics (whale_alert, CoinDesk, etc.). **Avec login :** recherche avancée (tri, likes, dates).")
         
-        if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
+        if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
             config = CRYPTO_LIST[crypto]
             with st.spinner("Scraping Twitter en cours..."):
                 try:
@@ -2139,7 +2185,8 @@ def page_scraping():
                         min_likes=min_likes if min_likes > 0 else None,
                         start_date=start_date.strftime('%Y-%m-%d') if start_date else None,
                         end_date=end_date.strftime('%Y-%m-%d') if end_date else None,
-                        sort_mode=sort_mode
+                        sort_mode=sort_mode,
+                        force_login=try_login
                     )
                     if not posts:
                         st.warning("⚠️ Aucun tweet récupéré. Twitter peut bloquer le scraping. Vérifiez les logs dans le terminal.")
@@ -2172,7 +2219,7 @@ def page_scraping():
             
             st.info("**Méthode :** API YouTube. Commentaires de la vidéo, tri par pertinence ou date.")
             
-            if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
+            if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
                 if not url:
                     st.error("Veuillez entrer une URL YouTube")
                 else:
@@ -2193,7 +2240,7 @@ def page_scraping():
         
         st.info("**Méthode :** Canaux publics (API). Récupération simple (< 30 msg) ou paginée pour plus de messages.")
         
-        if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
+        if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
             with st.spinner("Scraping Telegram en cours..."):
                 try:
                     if limit > 30:
@@ -2230,7 +2277,7 @@ def page_scraping():
         
         st.info("**Méthode :** Selenium (scroll). Les labels Bullish/Bearish sont inclus automatiquement.")
         
-        if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
+        if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
             config = CRYPTO_LIST[crypto]
             
             # Validation des dates
@@ -2269,7 +2316,7 @@ def page_scraping():
         
         st.info("**Méthode :** HTTP /biz/. Discussions anonymes, pas de login requis.")
         
-        if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
+        if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
             config = CRYPTO_LIST[crypto]
             with st.spinner("Scraping 4chan /biz/ en cours..."):
                 query = config.get('sub', 'crypto').lower()
@@ -2289,7 +2336,7 @@ def page_scraping():
         
         st.info("**Méthode :** HTTP. Forum crypto historique, pas de login requis.")
         
-        if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
+        if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
             config = CRYPTO_LIST[crypto]
             with st.spinner("Scraping Bitcointalk en cours..."):
                 query = config.get('sub', 'crypto').lower()
@@ -2309,7 +2356,7 @@ def page_scraping():
         
         st.info("**Méthode :** API GitHub (gratuite). Issues et discussions de projets crypto.")
         
-        if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
+        if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
             config = CRYPTO_LIST[crypto]
             with st.spinner("Scraping GitHub Issues en cours..."):
                 query = config.get('sub', 'crypto').lower()
@@ -2329,7 +2376,7 @@ def page_scraping():
         
         st.info("**Méthode :** AT Protocol (API). Configure BLUESKY_USERNAME et BLUESKY_APP_PASSWORD dans .env pour utiliser ton compte.")
         
-        if st.button("Lancer le scraping", type="primary", use_container_width=True, key="scr_btn"):
+        if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
             config = CRYPTO_LIST[crypto]
             with st.spinner("Scraping Bluesky en cours..."):
                 query = config.get('sub', 'Bitcoin').lower()
@@ -2378,16 +2425,16 @@ def page_scraping():
             # Actions
             c1, c2, c3 = st.columns(3)
             with c1:
-                if st.button("Sauvegarder en base", use_container_width=True, type="primary"):
+                if st.button("Sauvegarder en base", width="stretch", type="primary"):
                     result = save_posts(posts, source=data['source'], method="scraper")
                     st.success(f"{result['inserted']} posts sauvegardés")
             with c2:
-                if st.button("Envoyer vers Analyse", use_container_width=True):
+                if st.button("Envoyer vers Analyse", width="stretch"):
                     st.session_state['analyze_data'] = posts
                     st.info("Données prêtes pour l'analyse")
             with c3:
                 csv_data = pd.DataFrame(posts).to_csv(index=False)
-                st.download_button("Exporter CSV", csv_data, f"{data['source']}_data.csv", use_container_width=True)
+                st.download_button("Exporter CSV", csv_data, f"{data['source']}_data.csv", width="stretch")
             
             # Tableau
             st.markdown("<br>", unsafe_allow_html=True)
@@ -2410,7 +2457,7 @@ def page_scraping():
                 "Date": safe_date(p.get('created_utc'))
             } for p in posts[:50]])
             
-            st.dataframe(df, use_container_width=True, height=400)
+            st.dataframe(df, width="stretch", height=400)
             
             if len(posts) > 50:
                 st.caption(f"Affichage de 50 posts sur {len(posts)}")

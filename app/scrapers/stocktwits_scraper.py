@@ -3,6 +3,7 @@ StockTwits Scraper - Selenium uniquement (bypass Cloudflare)
 Labels humains Bullish/Bearish inclus!
 """
 
+import os
 import time
 import random
 import re
@@ -36,6 +37,21 @@ LIMITS = {
 def get_limits():
     """Retourne les limites par methode"""
     return LIMITS
+
+
+def _find_chrome_binary() -> Optional[str]:
+    """Trouve le binaire Chrome SYSTÈME uniquement (évite Chrome for Testing qui plante)."""
+    paths = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Google Chrome 2.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        "/usr/bin/google-chrome",
+        "/usr/bin/chromium",
+    ]
+    for path in paths:
+        if os.path.isfile(path):
+            return path
+    return None
 
 
 def filter_posts_by_date(posts: list, start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
@@ -102,26 +118,52 @@ def scrape_stocktwits(symbol: str, limit: int = 100, method: str = "selenium", e
     fetch_limit = limit * 2 if (start_date or end_date) else limit
     fetch_limit = min(fetch_limit, LIMITS["selenium"])
 
-    # Config Chrome avec interception réseau si enhanced
+    # Config Chrome avec chemin binaire SYSTÈME uniquement
+    chrome_binary = _find_chrome_binary()
+    if not chrome_binary:
+        print("Erreur Chrome StockTwits: aucun Chrome système trouvé. Installez Google Chrome (ou Chrome 2) dans Applications.")
+        return []
     options = Options()
+    options.binary_location = chrome_binary
+    # Profil temporaire propre (évite conflit avec Chrome ouvert)
+    import tempfile
+    temp_profile = tempfile.mkdtemp(prefix="selenium_stocktwits_")
+    options.add_argument(f"--user-data-dir={temp_profile}")
+    # Headless + options anti-plantage
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--disable-gpu")
+    options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-background-networking")
+    options.add_argument("--disable-default-apps")
+    options.add_argument("--disable-sync")
+    options.add_argument("--no-first-run")
+    options.add_argument("--disable-renderer-backgrounding")
+    options.add_argument("--disable-features=VizDisplayCompositor")
     options.add_argument("--window-size=1920,1080")
-    options.add_argument("--remote-debugging-port=0")  # évite "Can't find free port"
+    options.add_argument("--remote-debugging-port=0")
+    options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option('useAutomationExtension', False)
-    
+    options.add_experimental_option("useAutomationExtension", False)
+    options.add_experimental_option("prefs", {
+        "profile.default_content_setting_values.notifications": 2,
+        "credentials_enable_service": False,
+        "profile.password_manager_enabled": False,
+    })
+
     try:
         driver = webdriver.Chrome(options=options)
-        driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-            "userAgent": 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
+        })
+        driver.execute_cdp_cmd("Network.setUserAgentOverride", {
+            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         })
     except Exception as e:
-        print(f"Erreur Chrome: {e}")
+        print(f"Erreur Chrome StockTwits: {e}")
         return []
 
     try:

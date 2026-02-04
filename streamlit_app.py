@@ -14,8 +14,9 @@ import sys
 import os
 from dotenv import load_dotenv
 
-# Charger les variables d'environnement
-load_dotenv()
+# Charger .env depuis la racine du projet (pour DATABASE_URL, clés API, etc.)
+_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+load_dotenv(_env_path)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -2454,18 +2455,34 @@ def page_scraping():
         with c2:
             limit = st.slider("Nombre de posts", 10, 200, 50, key="scr_limit")
 
+        c1, c2 = st.columns(2)
+        with c1:
+            bluesky_start = st.date_input("Date de début (optionnel)", value=None, key="scr_bluesky_start")
+        with c2:
+            bluesky_end = st.date_input("Date de fin (optionnel)", value=None, key="scr_bluesky_end")
+
         st.info(
-            "**Méthode :** AT Protocol (API). Configure BLUESKY_USERNAME et BLUESKY_APP_PASSWORD dans .env pour utiliser ton compte.")
+            "**Méthode :** AT Protocol (API). Configure BLUESKY_USERNAME et BLUESKY_APP_PASSWORD dans .env pour utiliser ton compte. Les dates filtrent les posts par créated_utc (côté client).")
 
         if st.button("Lancer le scraping", type="primary", width="stretch", key="scr_btn"):
             config = CRYPTO_LIST[crypto]
             with st.spinner("Scraping Bluesky en cours..."):
                 query = config.get('sub', 'Bitcoin').lower()
-                posts = scrape_bluesky(query, limit)
+                posts = scrape_bluesky(
+                    query, limit,
+                    start_date=bluesky_start.strftime('%Y-%m-%d') if bluesky_start else None,
+                    end_date=bluesky_end.strftime('%Y-%m-%d') if bluesky_end else None,
+                )
             if posts:
                 st.success(f"{len(posts)} posts récupérés depuis Bluesky")
             else:
-                st.warning("Aucun post récupéré. Vérifie BLUESKY_USERNAME et BLUESKY_APP_PASSWORD dans .env.")
+                if bluesky_start or bluesky_end:
+                    st.warning(
+                        "Aucun post dans la plage de dates choisie. L'API Bluesky renvoie les posts **les plus récents** : "
+                        "si la date de fin est avant aujourd'hui, ils peuvent tous être exclus. Essayez d'étendre la date de fin à aujourd'hui ou de laisser les dates vides."
+                    )
+                else:
+                    st.warning("Aucun post récupéré. Vérifie BLUESKY_USERNAME et BLUESKY_APP_PASSWORD dans .env.")
             st.session_state.scrape_results = {"posts": posts, "source": "bluesky", "crypto": crypto}
 
     # Affichage des résultats
@@ -2478,7 +2495,10 @@ def page_scraping():
 
         if not posts:
             if source_result == "bluesky":
-                st.info("**Bluesky** : aucun post trouvé. Vérifie BLUESKY_USERNAME et BLUESKY_APP_PASSWORD dans .env.")
+                st.info(
+                    "**Bluesky** : aucun post affiché. Soit les identifiants .env sont manquants/invalides, "
+                    "soit la plage de dates a exclu tous les posts (l'API renvoie les plus récents — étendre la date de fin ou laisser les dates vides)."
+                )
             else:
                 st.error("Aucun post récupéré")
         else:

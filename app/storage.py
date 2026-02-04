@@ -87,9 +87,19 @@ def _get_postgres_conn():
     database_url = database_url.strip('"').strip("'")
 
     # Dans Streamlit Secrets, les $$ doivent être doublés ($$$$)
-    # On les convertit en $$ pour l'URL
     if "$$$$" in database_url:
         database_url = database_url.replace("$$$$", "$$")
+    # Si le mot de passe contient $ et que c'est écrit tel quel dans l'URL, encoder en %24
+    # (ex. postgresql://user:pass$word@host/db -> ...pass%24word...)
+    if "@" in database_url and "://" in database_url:
+        scheme, rest = database_url.split("://", 1)
+        if "@" in rest:
+            userinfo, host_part = rest.rsplit("@", 1)
+            if ":" in userinfo:
+                user, password = userinfo.split(":", 1)
+                if "$" in password and "%24" not in password:
+                    password = password.replace("$", "%24")
+                    database_url = f"{scheme}://{user}:{password}@{host_part}"
 
     try:
         # Si l'URL commence par postgres://, convertir en postgresql://
@@ -129,15 +139,16 @@ def _get_postgres_conn():
 
 
 def _ensure_postgres_storage():
-    """Crée la table dans PostgreSQL si elle n'existe pas."""
+    """Crée la table dans PostgreSQL si elle n'existe pas (utilise POSTGRES_TABLE)."""
     conn = _get_postgres_conn()
     if not conn:
         return None
     
     try:
         cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS posts (
+        # Créer la même table que celle utilisée pour INSERT/SELECT (posts2 par défaut)
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS {POSTGRES_TABLE} (
                 uid VARCHAR(255) PRIMARY KEY,
                 id TEXT,
                 source TEXT,
@@ -187,12 +198,11 @@ def _ensure_sqlite_storage():
     return conn
 
 
-# Forcer SQLite local (mettre à False pour utiliser PostgreSQL cloud)
-# Table Supabase à utiliser
-POSTGRES_TABLE = "posts2"
-
 # Forcer SQLite local (mettre à True pour utiliser SQLite au lieu de PostgreSQL)
 FORCE_SQLITE = False
+
+# Table Supabase/PostgreSQL à utiliser (créée automatiquement si elle n'existe pas)
+POSTGRES_TABLE = "posts2"
 
 
 def _get_connection():

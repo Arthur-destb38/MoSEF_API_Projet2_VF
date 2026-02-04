@@ -8,6 +8,7 @@ Le fichier `.env` ne doit **pas** être versionné (il est dans `.gitignore`). C
 
 ## Dashboard (Streamlit)
 
+
 | Variable | Description |
 |---------|-------------|
 | `APP_PASSWORD` ou `DASHBOARD_PASSWORD` | Mot de passe pour accéder au dashboard. Laisser vide = accès libre en local. |

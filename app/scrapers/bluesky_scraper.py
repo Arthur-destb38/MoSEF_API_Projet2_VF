@@ -12,7 +12,8 @@ Pour utiliser un compte Bluesky :
 
 import os
 import time
-from typing import List, Dict
+from datetime import datetime, date
+from typing import List, Dict, Optional
 
 import requests
 
@@ -125,23 +126,94 @@ def scrape_bluesky_with_login(query: str, limit: int, username: str, password: s
     return posts[:limit]
 
 
-def scrape_bluesky(query: str = "bitcoin", limit: int = 50) -> List[Dict]:
-    """Scrape Bluesky. En cas d'erreur, retourne [] sans lever."""
+def _parse_created_to_date(raw) -> Optional[date]:
+    """Parse created_utc (ISO string ou timestamp) et retourne la date calendaire (pour comparaison)."""
+    if raw is None:
+        return None
     try:
-        return _scrape_bluesky_impl(query, limit)
+        if isinstance(raw, (int, float)):
+            return datetime.utcfromtimestamp(raw).date()
+        s = str(raw).strip()
+        if not s:
+            return None
+        # Bluesky renvoie "2023-08-07T05:31:12.156888Z"
+        s = s.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        return dt.date()
+    except (ValueError, TypeError):
+        return None
+
+
+def _filter_posts_by_date(
+    posts: List[Dict],
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> List[Dict]:
+    """Filtre les posts par plage de dates (created_utc). Compare les dates calendaires uniquement (YYYY-MM-DD)."""
+    if not start_date and not end_date:
+        return posts
+    try:
+        start_d = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else None
+    except (ValueError, TypeError):
+        start_d = None
+    try:
+        end_d = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else None
+    except (ValueError, TypeError):
+        end_d = None
+    filtered = []
+    for p in posts:
+        post_date = _parse_created_to_date(p.get("created_utc"))
+        if post_date is None:
+            # Si on ne peut pas parser la date, on garde le post (évite tout filtrer par erreur)
+            filtered.append(p)
+            continue
+        if start_d and post_date < start_d:
+            continue
+        if end_d and post_date > end_d:
+            continue
+        filtered.append(p)
+    return filtered
+
+
+def scrape_bluesky(
+    query: str = "bitcoin",
+    limit: int = 50,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> List[Dict]:
+    """Scrape Bluesky. En cas d'erreur, retourne [] sans lever.
+    start_date / end_date : optionnels, format YYYY-MM-DD ; filtre côté client (created_utc)."""
+    try:
+        return _scrape_bluesky_impl(query, limit, start_date, end_date)
     except Exception as e:
         print(f"Bluesky scrape_bluesky: {e}")
         return []
 
 
-def _scrape_bluesky_impl(query: str = "bitcoin", limit: int = 50) -> List[Dict]:
+def _scrape_bluesky_impl(
+    query: str = "bitcoin",
+    limit: int = 50,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> List[Dict]:
     username = os.environ.get("BLUESKY_USERNAME", "").strip()
     password = os.environ.get("BLUESKY_APP_PASSWORD") or os.environ.get("BLUESKY_PASSWORD", "").strip()
 
+    # Avec dates : on récupère plus de posts (en paginant) pour "remonter" dans le temps et avoir des posts dans la plage
+    fetch_limit = LIMITS["api"] if (start_date or end_date) else limit
     if username and password:
-        return scrape_bluesky_with_login(query, limit, username, password)
+        posts = scrape_bluesky_with_login(query, fetch_limit, username, password)
+    else:
+        posts = _scrape_bluesky_public(query, fetch_limit)
+    before_filter = len(posts)
+    posts = _filter_posts_by_date(posts, start_date, end_date)
+    if (start_date or end_date) and before_filter > 0 and len(posts) == 0:
+        print(f"Bluesky: {before_filter} posts récupérés, mais 0 dans la plage {start_date or '?'} → {end_date or '?'}. Les posts renvoyés par l'API sont les plus récents ; élargir la date de fin (ex. aujourd'hui) ou laisser les dates vides.")
+    return posts[:limit]
 
-    # Fallback: API publique sans auth (souvent 403)
+
+def _scrape_bluesky_public(query: str, limit: int) -> List[Dict]:
+    """API publique sans auth (souvent 403)."""
     posts = []
     seen_uris = set()
     cursor = None

@@ -32,7 +32,8 @@ from app.nlp import load_finbert, load_cryptobert, analyze_finbert, analyze_cryp
 from app.utils import clean_text
 from app.prices import get_historical_prices, CryptoPrices
 from app.storage import save_posts, get_all_posts, export_to_csv, export_to_json, get_stats, DB_PATH, JSONL_PATH, \
-    _parse_created_utc_to_date
+    _parse_created_utc_to_date, get_btc_usd_prices
+from econometrics import cross_correlation, test_granger
 
 # ============ PAGE CONFIG ============
 
@@ -1333,9 +1334,25 @@ def page_stored_data():
     elif st.session_state.data_viz_tab == "publications":
         st.markdown(
             "        **Distribution de la publication des posts** : répartition des dates de publication des posts dans la base.")
-        if sample_posts:
+        # Utiliser tous les posts (ou un plafond élevé) pour ce graphique, pas seulement les 5000
+        # derniers par scraped_at, sinon les imports (Yahoo, BMC, etc.) n'apparaissent pas.
+        posts_for_pub = []
+        if total > 0:
+            if total <= 5000:
+                posts_for_pub = get_all_posts(limit=total)
+            else:
+                off = 0
+                while off < total:
+                    batch = get_all_posts(limit=5000, offset=off)
+                    if not batch:
+                        break
+                    posts_for_pub.extend(batch)
+                    off += len(batch)
+                    if len(batch) < 5000 or len(posts_for_pub) >= total:
+                        break
+        if posts_for_pub:
             dates = []
-            for p in sample_posts:
+            for p in posts_for_pub:
                 d = _parse_created_utc_to_date(p.get("created_utc"))
                 if d is not None:
                     dates.append(d)
@@ -1362,7 +1379,7 @@ def page_stored_data():
                 st.plotly_chart(fig_pub, width="stretch")
             else:
                 st.caption(
-                    "Aucune date de publication exploitable dans l'échantillon (created_utc absent ou invalide).")
+                    "Aucune date de publication exploitable (created_utc absent ou invalide).")
         else:
             st.caption("Aucune donnée pour afficher la distribution.")
         st.markdown("---")
@@ -1375,10 +1392,10 @@ def page_stored_data():
     col1, col2, col3 = st.columns(3)
     with col1:
         source_filter = st.selectbox("Source",
-                                     ["Toutes", "reddit", "stocktwits", "telegram", "twitter", "youtube", "bluesky"],
+                                     ["Toutes", "reddit", "stocktwits", "telegram", "twitter", "youtube", "bluesky", "yahoo_finance", "bmc_influencers"],
                                      key="data_source")
     with col2:
-        method_filter = st.selectbox("Méthode", ["Toutes", "http", "selenium", "scraper", "api", "selenium_login"],
+        method_filter = st.selectbox("Méthode", ["Toutes", "http", "selenium", "scraper", "api", "selenium_login", "import_21_24", "zenodo_posts", "bmc_import"],
                                      key="data_method")
     with col3:
         limit = st.number_input("Limite", min_value=10, max_value=1000, value=100, key="data_limit")
@@ -1415,6 +1432,403 @@ SQLite (local): {DB_PATH}
 JSONL (backup): {JSONL_PATH}
 Exports: data/exports/
     """)
+
+
+# ============ PAGE SCORES DE SENTIMENT (BASE DE DONNÉES) ============
+
+def _score_to_label(score):
+    """Convertit un score [-1, 1] en label Bullish / Bearish / Neutral (seuils FinBERT/CryptoBERT)."""
+    if score is None:
+        return None
+    s = float(score)
+    if s > 0.05:
+        return "Bullish"
+    if s < -0.05:
+        return "Bearish"
+    return "Neutral"
+
+
+def _is_bitcoin_related(post):
+    """True si le post concerne le Bitcoin (titre/texte ou source Yahoo Bitcoin News)."""
+    if post.get("source") == "yahoo_finance":
+        return True
+    text = ((post.get("title") or "") + " " + (post.get("text") or "")).lower()
+    return "bitcoin" in text or " btc " in text or text.strip().startswith("btc ")
+
+
+def page_sentiment_scores():
+    """Page dédiée aux scores de sentiment et comparaison avec le cours Bitcoin (API CoinGecko)."""
+    render_header()
+    st.markdown("### Scores de sentiment & Bitcoin")
+
+    st.markdown("""
+    Cette page se concentre sur les **posts liés au Bitcoin** et met l'accent sur la **relation entre le sentiment
+    sur les réseaux et l'évolution du cours** : le sentiment des réseaux est-il lié aux mouvements de prix ?
+    Vous y trouverez des graphiques sentiment vs cours BTC, puis des **indicateurs de liaison** (corrélations,
+    décalages, causalité de Granger) et une interprétation. Données : scores en base, prix BTC (table btc_usd ou CoinGecko).
+    """)
+    st.markdown("---")
+
+    stats = get_stats()
+    total = stats.get("total_posts", 0)
+    if total == 0:
+        st.warning("Aucune donnée en base. Importez des posts ou lancez l'analyse en lot.")
+        return
+
+    # Charger les posts (par lots si nécessaire), ne garder que ceux avec sentiment_score
+    st.caption("Chargement des posts avec score de sentiment…")
+    posts_with_sentiment = []
+    if total <= 5000:
+        batch = get_all_posts(limit=total)
+        posts_with_sentiment = [p for p in batch if p.get("sentiment_score") is not None]
+    else:
+        off = 0
+        max_to_scan = min(total, 60000)
+        while off < max_to_scan:
+            batch = get_all_posts(limit=5000, offset=off)
+            if not batch:
+                break
+            posts_with_sentiment.extend([p for p in batch if p.get("sentiment_score") is not None])
+            off += len(batch)
+            if len(batch) < 5000:
+                break
+
+    if not posts_with_sentiment:
+        st.warning(
+            "Aucun post avec score de sentiment en base. Lancez **Analyse en lot** "
+            "(script `analyze_posts_batch.py --model cryptobert --only-missing`) ou importez des données avec sentiment."
+        )
+        return
+
+    # Filtrer : uniquement posts liés au Bitcoin
+    posts_bitcoin = [p for p in posts_with_sentiment if _is_bitcoin_related(p)]
+    if not posts_bitcoin:
+        st.warning(
+            "Aucun post **lié au Bitcoin** avec score de sentiment. Les filtres retiennent les posts dont le titre ou le texte "
+            "contiennent « bitcoin » ou « btc », ou la source Yahoo Bitcoin News."
+        )
+        return
+
+    n_btc = len(posts_bitcoin)
+    n_with = len(posts_with_sentiment)
+    st.success(f"**{n_btc}** posts Bitcoin avec score de sentiment (sur {n_with} avec score, {total} en base).")
+    st.info("**Prix BTC** : le graphique « Sentiment vs cours Bitcoin » utilise en priorité la table **btc_usd** (données importées, 2021 → aujourd'hui). Si la table est vide, l'API CoinGecko est utilisée. Mise à jour : `scripts/download_btc_usd_2021_now.py` puis `import_btc_usd.py`.")
+
+    # Données pour les graphiques (uniquement Bitcoin)
+    scores = []
+    dates = []
+    sources = []
+    labels = []
+    is_inf = []
+    for p in posts_bitcoin:
+        s = p.get("sentiment_score")
+        if s is None:
+            continue
+        try:
+            sc = float(s)
+        except (TypeError, ValueError):
+            continue
+        scores.append(sc)
+        labels.append(_score_to_label(sc))
+        sources.append(p.get("source") or "?")
+        is_inf.append(bool(p.get("is_influencer")))
+        d = _parse_created_utc_to_date(p.get("created_utc"))
+        dates.append(d)
+
+    df = pd.DataFrame({
+        "score": scores,
+        "date": dates,
+        "source": sources,
+        "label": labels,
+        "is_influencer": is_inf,
+    })
+    df = df.dropna(subset=["score"])
+    if df.empty:
+        st.warning("Aucune donnée exploitable après filtrage.")
+        return
+
+    # Restreindre à 2021 → aujourd'hui
+    start_2021 = date(2021, 1, 1)
+    today = date.today()
+
+    def _to_date(v):
+        if v is None or pd.isna(v):
+            return None
+        if hasattr(v, "date"):
+            return v.date()
+        return v
+
+    df["_d"] = df["date"].map(_to_date)
+    df = df[df["_d"].notna() & (df["_d"] >= start_2021) & (df["_d"] <= today)].drop(columns=["_d"])
+    if df.empty:
+        st.warning("Aucun post Bitcoin dans la plage 2021 à aujourd'hui.")
+        return
+    st.caption(f"Période affichée : **2021-01-01** → **{today.isoformat()}**.")
+
+    layout_kw = dict(
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        font_color="#e0e7ff",
+        xaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+        yaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+    )
+
+    # --- 1. Distribution des scores (histogramme) ---
+    st.markdown("#### 1. Distribution des scores de sentiment")
+    fig_hist = px.histogram(
+        df, x="score", nbins=50,
+        title="Histogramme des scores (échelle ≈ -1 à 1)",
+        labels={"score": "Score de sentiment", "count": "Nombre de posts"},
+        color_discrete_sequence=["#818cf8"],
+    )
+    fig_hist.update_layout(**layout_kw)
+    st.plotly_chart(fig_hist, use_container_width=True)
+    st.caption("Plus le score est positif, plus le sentiment est haussier ; négatif = baissier.")
+    st.markdown("---")
+
+    # --- 2. Répartition Bullish / Bearish / Neutral ---
+    st.markdown("#### 2. Répartition par catégorie (Bullish / Bearish / Neutral)")
+    label_counts = df["label"].value_counts().reindex(["Bullish", "Neutral", "Bearish"]).fillna(0)
+    df_pie = label_counts.reset_index()
+    df_pie.columns = ["Sentiment", "Count"]
+    fig_pie = px.pie(
+        df_pie, values="Count", names="Sentiment",
+        title="Proportion des sentiments",
+        color_discrete_sequence=["#22c55e", "#94a3b8", "#ef4444"],
+    )
+    fig_pie.update_layout(**layout_kw, legend_font_color="#e0e7ff")
+    st.plotly_chart(fig_pie, use_container_width=True)
+    st.markdown("---")
+
+    # --- 3. Sentiment moyen par date de publication ---
+    st.markdown("#### 3. Évolution du sentiment moyen dans le temps (Bitcoin)")
+    df_date = df.dropna(subset=["date"])
+    daily = pd.DataFrame()
+    if not df_date.empty:
+        daily = df_date.groupby("date").agg(score_mean=("score", "mean"), count=("score", "count")).reset_index()
+        daily = daily[daily["count"] >= 1].sort_values("date")
+        if not daily.empty:
+            fig_time = px.line(
+                daily, x="date", y="score_mean",
+                title="Sentiment moyen par jour (date de publication)",
+                labels={"score_mean": "Score moyen", "date": "Date"},
+            )
+            fig_time.update_layout(**layout_kw)
+            fig_time.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
+            st.plotly_chart(fig_time, use_container_width=True)
+        else:
+            st.caption("Pas assez de dates pour afficher l'évolution.")
+    else:
+        st.caption("Dates de publication manquantes pour ces posts.")
+    st.markdown("---")
+
+    # --- 3b. Comparaison Sentiment Bitcoin vs cours BTC (table btc_usd prioritaire, puis CoinGecko) ---
+    st.markdown("#### 4. Sentiment vs cours Bitcoin")
+    if not daily.empty and len(daily) >= 2:
+        # Même période que la page : 2021 → aujourd'hui
+        start_2021 = date(2021, 1, 1)
+        today_btc = date.today()
+        days_2021_to_now = (today_btc - start_2021).days
+        btc_prices = []
+        price_source = None
+        api_error = None
+        with st.spinner("Récupération des prix BTC (2021 → aujourd'hui)…"):
+            # Priorité à la table btc_usd (données importées), puis CoinGecko en secours
+            btc_prices = get_btc_usd_prices(date_from=start_2021, date_to=today_btc)
+            if btc_prices:
+                price_source = "base (table btc_usd)"
+            if not btc_prices:
+                try:
+                    btc_prices = get_historical_prices("bitcoin", days=days_2021_to_now)
+                    if btc_prices:
+                        price_source = "CoinGecko"
+                except Exception as e:
+                    api_error = str(e)
+            if btc_prices:
+                prices_df = pd.DataFrame(btc_prices)
+                prices_df["date"] = pd.to_datetime(prices_df["date"]).dt.date
+                daily_copy = daily.copy()
+                daily_copy["date"] = pd.to_datetime(daily_copy["date"]).dt.date
+                merged = daily_copy.merge(prices_df, on="date", how="inner")
+                if not merged.empty:
+                    from plotly.subplots import make_subplots
+                    fig_dual = make_subplots(specs=[[{"secondary_y": True}]])
+                    fig_dual.add_trace(
+                        go.Scatter(
+                            x=merged["date"], y=merged["score_mean"],
+                            name="Sentiment moyen", line=dict(color="#818cf8", width=2),
+                        ),
+                        secondary_y=False,
+                    )
+                    fig_dual.add_trace(
+                        go.Scatter(
+                            x=merged["date"], y=merged["price"],
+                            name="Prix BTC (USD)", line=dict(color="#f59e0b", width=2),
+                        ),
+                        secondary_y=True,
+                    )
+                    fig_dual.update_xaxes(title_text="Date", gridcolor="rgba(255,255,255,0.1)")
+                    fig_dual.update_yaxes(title_text="Score sentiment", secondary_y=False, gridcolor="rgba(255,255,255,0.1)")
+                    fig_dual.update_yaxes(title_text="Prix BTC (USD)", secondary_y=True, gridcolor="rgba(255,255,255,0.1)")
+                    fig_dual.update_layout(
+                        title="Sentiment (Bitcoin) et cours BTC sur la même période",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        font_color="#e0e7ff",
+                        legend_font_color="#e0e7ff",
+                        hovermode="x unified",
+                    )
+                    fig_dual.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.2)", secondary_y=False)
+                    st.plotly_chart(fig_dual, use_container_width=True)
+                    if price_source == "base (table btc_usd)":
+                        st.caption(f"Prix : **table btc_usd** ({len(btc_prices)} jours, {btc_prices[0]['date']} → {btc_prices[-1]['date']}). Gauche = sentiment, droite = prix USD.")
+                    else:
+                        st.caption(f"Prix : **{price_source}**. Gauche = sentiment, droite = prix USD.")
+                    # Second chart: sentiment en barres + prix BTC en courbe (style référence)
+                    fig_bars = make_subplots(specs=[[{"secondary_y": True}]])
+                    fig_bars.add_trace(
+                        go.Bar(
+                            x=merged["date"], y=merged["score_mean"],
+                            name="Sentiment", marker_color="#ef4444",
+                        ),
+                        secondary_y=False,
+                    )
+                    fig_bars.add_trace(
+                        go.Scatter(
+                            x=merged["date"], y=merged["price"],
+                            name="Prix BTC (USD)", line=dict(color="#38bdf8", width=2),
+                        ),
+                        secondary_y=True,
+                    )
+                    fig_bars.update_xaxes(title_text="Date", gridcolor="rgba(255,255,255,0.1)")
+                    fig_bars.update_yaxes(title_text="Sentiment", secondary_y=False, gridcolor="rgba(255,255,255,0.1)")
+                    fig_bars.update_yaxes(title_text="Prix BTC (USD)", secondary_y=True, gridcolor="rgba(255,255,255,0.1)")
+                    fig_bars.update_layout(
+                        title="Sentiment (barres) et cours BTC (courbe)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        font_color="#e0e7ff",
+                        legend_font_color="#e0e7ff",
+                        hovermode="x unified",
+                        barmode="overlay",
+                    )
+                    fig_bars.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)", secondary_y=False)
+                    st.plotly_chart(fig_bars, use_container_width=True)
+                    st.caption("Même données : sentiment en barres (rouge), prix BTC en courbe (bleu clair).")
+
+                    # --- Relation sentiment–cours : le sentiment sur les réseaux est-il lié à l'évolution du cours ? ---
+                    st.markdown("#### Le sentiment sur les réseaux est-il lié à l'évolution du cours ?")
+                    merged_ret = merged.copy()
+                    merged_ret = merged_ret.sort_values("date")
+                    merged_ret["log_return"] = np.log(merged_ret["price"].astype(float) / merged_ret["price"].astype(float).shift(1))
+                    merged_ret = merged_ret.dropna(subset=["log_return"])
+                    if len(merged_ret) >= 10:
+                        corr_same = merged_ret["score_mean"].corr(merged_ret["log_return"])
+                        merged_ret["sentiment_lag1"] = merged_ret["score_mean"].shift(1)
+                        corr_lag1 = merged_ret[["sentiment_lag1", "log_return"]].dropna()["sentiment_lag1"].corr(merged_ret[["sentiment_lag1", "log_return"]].dropna()["log_return"])
+                        cross = cross_correlation(merged_ret["score_mean"], merged_ret["log_return"], max_lag=10)
+                        granger_df = merged_ret[["score_mean", "log_return"]].rename(columns={"score_mean": "sentiment_mean"})
+                        granger_res = test_granger(granger_df, max_lag=5) if len(granger_df) >= 15 else {}
+
+                        c1, c2, c3 = st.columns(3)
+                        with c1:
+                            st.metric("Corrélation même jour (sentiment ↔ rendement)", f"{corr_same:.3f}" if not np.isnan(corr_same) else "—", help="Corrélation de Pearson entre sentiment moyen et rendement log du même jour.")
+                        with c2:
+                            st.metric("Corrélation décalée (sentiment j-1 → rendement j)", f"{corr_lag1:.3f}" if not np.isnan(corr_lag1) else "—", help="Le sentiment de la veille est-il associé au rendement du lendemain ?")
+                        with c3:
+                            bl = cross.get("best_lag")
+                            bc = cross.get("best_correlation")
+                            st.metric("Meilleure corrélation croisée (décalage)", f"lag {bl} : {bc:.3f}" if bl is not None and bc is not None else "—", help="Décalage (en jours) où sentiment et rendement sont le plus corrélés.")
+
+                        if granger_res and "error" not in granger_res:
+                            st.markdown("**Causalité de Granger** (le passé du sentiment aide-t-il à prédire le rendement ?)")
+                            g_s2r = granger_res.get("sentiment_to_returns", {})
+                            g_r2s = granger_res.get("returns_to_sentiment", {})
+                            st.caption(f"Sentiment → Rendement : {'Oui (p<0,05)' if g_s2r.get('significant') else 'Non'} — Rendement → Sentiment : {'Oui (p<0,05)' if g_r2s.get('significant') else 'Non'}.")
+
+                        fig_scatter = px.scatter(
+                            merged_ret, x="score_mean", y="log_return",
+                            title="Sentiment moyen vs rendement journalier (même jour)",
+                            labels={"score_mean": "Sentiment moyen", "log_return": "Rendement log"},
+                            trendline="ols",
+                        )
+                        fig_scatter.update_layout(**layout_kw)
+                        fig_scatter.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
+                        fig_scatter.add_vline(x=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
+                        st.plotly_chart(fig_scatter, use_container_width=True)
+
+                        st.markdown("**Interprétation** — Une corrélation positive même jour suggère que les jours plus haussiers en sentiment coïncident avec des hausses de prix. Un décalage (lag) significatif indique que le sentiment pourrait *précéder* ou *suivre* le cours. La causalité de Granger teste si l’historique du sentiment aide à prédire le rendement (et réciproquement). Ces indicateurs ne prouvent pas une relation de cause à effet, mais une **liaison statistique** entre sentiment des réseaux et évolution du cours.")
+                    else:
+                        st.caption("Pas assez de jours communs (sentiment + prix) pour calculer les indicateurs de liaison (au moins 10 jours).")
+                else:
+                    st.caption("Aucun chevauchement des dates entre sentiment et prix. Vérifiez les plages.")
+            else:
+                st.error("Impossible de récupérer les prix BTC.")
+                if api_error:
+                    st.caption(f"CoinGecko : {api_error}")
+                st.caption(
+                    "**Solutions :** (1) Importer les prix en base : `python scripts/download_btc_usd_2021_now.py` puis "
+                    "`python scripts/import_btc_usd.py` (table btc_usd créée via `scripts/migrations/002_create_btc_usd.sql`). "
+                    "(2) Sinon vérifier la connexion pour CoinGecko (API gratuite, rate limit possible)."
+                )
+    else:
+        st.caption("Il faut au moins deux dates de sentiment pour comparer au cours BTC.")
+    st.markdown("---")
+
+    # --- 5. Sentiment par source ---
+    st.markdown("#### 5. Sentiment par source")
+    by_source = df.groupby("source").agg(score_mean=("score", "mean"), count=("score", "count")).reset_index()
+    by_source = by_source.sort_values("score_mean", ascending=False)
+    fig_source = px.bar(
+        by_source, x="source", y="score_mean",
+        title="Score moyen par source",
+        labels={"score_mean": "Score moyen", "source": "Source"},
+        color="score_mean",
+        color_continuous_scale="RdYlGn",
+        color_continuous_midpoint=0,
+    )
+    fig_source.update_layout(**layout_kw, showlegend=False, xaxis_tickangle=-45)
+    fig_source.update_coloraxes(showscale=True, colorbar_title="Score moyen")
+    st.plotly_chart(fig_source, use_container_width=True)
+    st.caption("Vert = plus haussier en moyenne, rouge = plus baissier.")
+    st.markdown("---")
+
+    # --- 6. Box plot par source ---
+    st.markdown("#### 6. Distribution du sentiment par source (box plot)")
+    fig_box = px.box(
+        df, x="source", y="score",
+        title="Distribution des scores par source",
+        labels={"score": "Score", "source": "Source"},
+        color_discrete_sequence=["#818cf8"],
+    )
+    fig_box.update_layout(**layout_kw, xaxis_tickangle=-45)
+    fig_box.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
+    st.plotly_chart(fig_box, use_container_width=True)
+    st.markdown("---")
+
+    # --- 7. Influenceurs vs non-influenceurs ---
+    if df["is_influencer"].any():
+        st.markdown("#### 7. Sentiment : influenceurs vs reste")
+        inf_mean = df[df["is_influencer"]]["score"].mean()
+        other_mean = df[~df["is_influencer"]]["score"].mean()
+        comp = pd.DataFrame({
+            "Type": ["Influenceurs", "Autres"],
+            "Score moyen": [inf_mean, other_mean],
+            "Nombre": [df["is_influencer"].sum(), (~df["is_influencer"]).sum()],
+        })
+        fig_inf = px.bar(
+            comp, x="Type", y="Score moyen",
+            title="Score moyen selon le type de compte",
+            color="Score moyen",
+            color_continuous_scale="RdYlGn",
+            color_continuous_midpoint=0,
+        )
+        fig_inf.update_layout(**layout_kw, showlegend=False)
+        fig_inf.update_coloraxes(showscale=False)
+        st.plotly_chart(fig_inf, use_container_width=True)
+    else:
+        st.markdown("#### 7. Influenceurs vs reste")
+        st.caption("Aucun post marqué comme influenceur dans cet échantillon.")
 
 
 # ============ PAGE ANALYSES DES RÉSULTATS ============
@@ -2597,7 +3011,7 @@ def main():
             st.session_state.nav_radio = "Documentation"
         page = st.radio(
             "Navigation",
-            ["Accueil", "Scraping", "Données", "Analyses des résultats", "Documentation"],
+            ["Accueil", "Scraping", "Données", "Scores de sentiment", "Analyses des résultats", "Documentation"],
             key="nav_radio",
             label_visibility="collapsed"
         )
@@ -2610,6 +3024,8 @@ def main():
         page_scraping()
     elif "Données" in page:
         page_stored_data()
+    elif "Scores de sentiment" in page:
+        page_sentiment_scores()
     elif "Analyses des résultats" in page:
         page_analyses_resultats()
     elif "Documentation" in page:

@@ -80,15 +80,23 @@ def get_historical_prices(crypto_id, days=60):
         return pd.DataFrame()
 
 
-def prepare_sentiment_data(posts, results):
+def prepare_sentiment_data(posts, results=None):
     """
-    Agrege les sentiments par jour
+    Agrège les sentiments par jour.
+    - Si results est fourni: utilise results[i]["score"] pour chaque post (comportement historique).
+    - Si results est None: utilise post["sentiment_score"] pour chaque post (posts chargés depuis la base).
     """
     data = []
 
     for i, post in enumerate(posts):
-        if i >= len(results):
-            break
+        if results is not None:
+            if i >= len(results):
+                break
+            score = results[i].get("score")
+        else:
+            score = post.get("sentiment_score")
+        if score is None:
+            continue
 
         ts = post.get("created_utc")
         if ts:
@@ -100,9 +108,9 @@ def prepare_sentiment_data(posts, results):
 
                 data.append({
                     "date": dt.strftime("%Y-%m-%d"),
-                    "score": results[i]["score"]
+                    "score": float(score)
                 })
-            except:
+            except Exception:
                 continue
 
     if not data:
@@ -278,9 +286,10 @@ def cross_correlation(sentiment, returns, max_lag=10):
     }
 
 
-def run_full_analysis(posts, results, crypto_id, days=60, max_lag=5):
+def run_full_analysis(posts, results=None, crypto_id="bitcoin", days=60, max_lag=5):
     """
-    Lance tous les tests
+    Lance tous les tests (ADF, Granger, VAR, corrélation croisée).
+    Si results est None, utilise post["sentiment_score"] pour chaque post (base de données).
     """
     output = {
         "status": "ok",
@@ -292,7 +301,7 @@ def run_full_analysis(posts, results, crypto_id, days=60, max_lag=5):
         "conclusion": ""
     }
 
-    # prepare donnees
+    # prepare donnees (results=None => utiliser sentiment_score des posts)
     sentiment_df = prepare_sentiment_data(posts, results)
     if sentiment_df.empty:
         output["status"] = "error"

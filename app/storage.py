@@ -208,7 +208,9 @@ def _ensure_postgres_storage():
                 subreddit TEXT,
                 url TEXT,
                 num_comments INTEGER,
-                scraped_at TIMESTAMP
+                scraped_at TIMESTAMP,
+                sentiment_score REAL,
+                is_influencer BOOLEAN DEFAULT FALSE
             )
         """)
         conn.commit()
@@ -238,7 +240,9 @@ def _ensure_sqlite_storage():
             subreddit TEXT,
             url TEXT,
             num_comments INTEGER,
-            scraped_at TEXT
+            scraped_at TEXT,
+            sentiment_score REAL,
+            is_influencer INTEGER DEFAULT 0
         )
     """)
     return conn
@@ -299,6 +303,64 @@ def _get_connection():
     return _ensure_sqlite_storage(), "sqlite"
 
 
+def get_raw_connection():
+    """
+    Retourne (conn, db_type) pour exécuter du SQL direct (ex. import btc_usd).
+    conn est None si db_type == "supabase_rest" (pas de connexion SQL directe).
+    """
+    conn, db_type = _get_connection()
+    if db_type == "supabase_rest":
+        return None, "supabase_rest"
+    return conn, db_type
+
+
+def get_btc_usd_prices(date_from: date | None = None, date_to: date | None = None) -> list[dict]:
+    """
+    Lit la table btc_usd (date, close) et retourne une liste de {"date": "YYYY-MM-DD", "price": float}.
+    date_from / date_to : optionnels, pour restreindre à une plage (ex. 2021-01-01 → aujourd'hui).
+    Retourne [] si la table n'existe pas ou en mode Supabase REST uniquement.
+    """
+    conn, db_type = get_raw_connection()
+    if not conn:
+        return []
+    try:
+        cur = conn.cursor()
+        if db_type == "postgres":
+            if date_from is not None and date_to is not None:
+                cur.execute("SELECT date, close FROM btc_usd WHERE date >= %s AND date <= %s ORDER BY date", (date_from, date_to))
+            elif date_from is not None:
+                cur.execute("SELECT date, close FROM btc_usd WHERE date >= %s ORDER BY date", (date_from,))
+            elif date_to is not None:
+                cur.execute("SELECT date, close FROM btc_usd WHERE date <= %s ORDER BY date", (date_to,))
+            else:
+                cur.execute("SELECT date, close FROM btc_usd ORDER BY date")
+        else:
+            if date_from is not None and date_to is not None:
+                cur.execute("SELECT date, close FROM btc_usd WHERE date >= ? AND date <= ? ORDER BY date", (date_from, date_to))
+            elif date_from is not None:
+                cur.execute("SELECT date, close FROM btc_usd WHERE date >= ? ORDER BY date", (date_from,))
+            elif date_to is not None:
+                cur.execute("SELECT date, close FROM btc_usd WHERE date <= ? ORDER BY date", (date_to,))
+            else:
+                cur.execute("SELECT date, close FROM btc_usd ORDER BY date")
+        rows = cur.fetchall()
+        conn.close()
+        result = []
+        for row in rows:
+            d, price = row[0], row[1]
+            if d is None or price is None:
+                continue
+            date_str = d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d)[:10]
+            result.append({"date": date_str, "price": round(float(price), 2)})
+        return result
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return []
+
+
 def _post_uid(post: dict, source: str, method: str) -> str:
     post_id = str(post.get("id") or "").strip()
     if post_id:
@@ -352,6 +414,13 @@ def _save_posts_supabase_rest(posts: list, source: str | None, method: str | Non
             "num_comments": int(post.get("num_comments")) if post.get("num_comments") is not None else None,
             "scraped_at": scraped_at.isoformat(),
         }
+        if post.get("sentiment_score") is not None:
+            try:
+                row["sentiment_score"] = float(post["sentiment_score"])
+            except (TypeError, ValueError):
+                pass
+        if post.get("is_influencer") is not None:
+            row["is_influencer"] = bool(post["is_influencer"])
         try:
             r = requests.post(endpoint, json=row, headers=headers, timeout=15)
             if r.status_code in (200, 201, 204):
@@ -392,6 +461,14 @@ def save_posts(posts: list, source: str | None = None, method: str | None = None
         p_method = method or post.get("method") or "unknown"
         uid = _post_uid(post, p_source, p_method)
 
+        sentiment_score = None
+        if post.get("sentiment_score") is not None:
+            try:
+                sentiment_score = float(post["sentiment_score"])
+            except (TypeError, ValueError):
+                pass
+        is_influencer = bool(post.get("is_influencer", False))
+
         row = (
             uid,
             str(post.get("id") or ""),
@@ -407,22 +484,24 @@ def save_posts(posts: list, source: str | None = None, method: str | None = None
             post.get("url"),
             int(post.get("num_comments")) if post.get("num_comments") is not None else None,
             scraped_at,
+            sentiment_score,
+            is_influencer,
         )
 
         if db_type == "postgres":
             cur.execute(f"""
                 INSERT INTO {POSTGRES_TABLE} (
                     uid, id, source, method, title, text, score, created_utc,
-                    human_label, author, subreddit, url, num_comments, scraped_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    human_label, author, subreddit, url, num_comments, scraped_at, sentiment_score, is_influencer
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (uid) DO NOTHING
             """, row)
         else:
             cur.execute("""
                 INSERT OR IGNORE INTO posts (
                     uid, id, source, method, title, text, score, created_utc,
-                    human_label, author, subreddit, url, num_comments, scraped_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    human_label, author, subreddit, url, num_comments, scraped_at, sentiment_score, is_influencer
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, row)
 
         if cur.rowcount == 1:
@@ -442,12 +521,74 @@ def save_posts(posts: list, source: str | None = None, method: str | None = None
                 "url": row[11],
                 "num_comments": row[12],
                 "scraped_at": row[13].isoformat() if hasattr(row[13], 'isoformat') else str(row[13]),
+                "sentiment_score": row[14],
+                "is_influencer": row[15],
             })
 
     conn.commit()
     conn.close()
 
     return {"inserted": inserted, "total": len(posts), "db_type": db_type}
+
+
+def update_sentiment_scores(updates: list[tuple[str, float]]) -> int:
+    """
+    Met à jour le sentiment_score de plusieurs posts par uid.
+    updates: liste de (uid, sentiment_score).
+    Retourne le nombre de lignes mises à jour.
+    """
+    if not updates:
+        return 0
+    conn, db_type = _get_connection()
+    if not conn:
+        return 0
+    updated = 0
+    if db_type == "supabase_rest":
+        import requests
+        endpoint = f"{conn['url']}/rest/v1/{conn['table']}"
+        headers = {
+            "apikey": conn["key"],
+            "Authorization": f"Bearer {conn['key']}",
+            "Content-Type": "application/json",
+        }
+        for uid, score in updates:
+            try:
+                r = requests.patch(
+                    endpoint,
+                    headers=headers,
+                    params={"uid": f"eq.{uid}"},
+                    json={"sentiment_score": round(float(score), 6)},
+                    timeout=10,
+                )
+                if r.status_code in (200, 204):
+                    updated += 1
+            except Exception:
+                pass
+        return updated
+    cur = conn.cursor()
+    if db_type == "postgres":
+        for uid, score in updates:
+            try:
+                cur.execute(
+                    f"UPDATE {POSTGRES_TABLE} SET sentiment_score = %s WHERE uid = %s",
+                    (round(float(score), 6), uid),
+                )
+                updated += cur.rowcount
+            except Exception:
+                pass
+    else:
+        for uid, score in updates:
+            try:
+                cur.execute(
+                    "UPDATE posts SET sentiment_score = ? WHERE uid = ?",
+                    (round(float(score), 6), uid),
+                )
+                updated += cur.rowcount
+            except Exception:
+                pass
+    conn.commit()
+    conn.close()
+    return updated
 
 
 def _get_all_posts_supabase_rest(
@@ -457,12 +598,17 @@ def _get_all_posts_supabase_rest(
     limit: int | None,
     date_from: date | None,
     date_to: date | None,
+    offset: int = 0,
+    only_without_sentiment: bool = False,
 ) -> list[dict]:
     """Récupère les posts via l'API REST Supabase."""
     import requests
     endpoint = f"{rest['url']}/rest/v1/{rest['table']}"
     headers = {"apikey": rest["key"], "Authorization": f"Bearer {rest['key']}"}
-    params = {"order": "scraped_at.desc", "limit": str(min((limit or 5000) * 2, 15000))}
+    req_limit = min(limit or 5000, 5000)
+    params = {"order": "scraped_at.desc", "limit": str(req_limit), "offset": str(offset)}
+    if only_without_sentiment:
+        params["sentiment_score"] = "is.null"
     if source:
         if isinstance(source, list):
             params["source"] = "in.(" + ",".join(source) + ")"
@@ -498,8 +644,10 @@ def get_all_posts(
     limit: int | None = None,
     date_from: date | str | None = None,
     date_to: date | str | None = None,
+    offset: int = 0,
+    only_without_sentiment: bool = False,
 ) -> list[dict]:
-    """Retrieve posts with optional filtering by source(s), method and publication date."""
+    """Retrieve posts with optional filtering by source(s), method, publication date, and pagination."""
     conn, db_type = _get_connection()
     if not conn:
         return []
@@ -521,13 +669,17 @@ def get_all_posts(
         d_to = date_to if isinstance(date_to, date) else datetime.strptime(str(date_to)[:10], "%Y-%m-%d").date()
 
     if db_type == "supabase_rest":
-        return _get_all_posts_supabase_rest(conn, sources, method, limit, d_from, d_to)
+        return _get_all_posts_supabase_rest(
+            conn, sources, method, limit, d_from, d_to, offset=offset, only_without_sentiment=only_without_sentiment
+        )
 
     # Quand on filtre par date, on récupère plus de lignes puis on filtre en Python
     fetch_limit = limit
     if (d_from is not None or d_to is not None) and (limit is None or limit > 0):
         fetch_limit = (limit or 5000) * 3
-        fetch_limit = min(fetch_limit, 15000)
+        fetch_limit = min(fetch_limit, 50000)
+    if fetch_limit is None and (offset or only_without_sentiment):
+        fetch_limit = 50000
 
     cur = conn.cursor()
 
@@ -540,7 +692,11 @@ def get_all_posts(
         if method:
             query += " AND method = %s"
             params.append(method)
+        if only_without_sentiment:
+            query += " AND sentiment_score IS NULL"
         query += " ORDER BY scraped_at DESC"
+        if offset:
+            query += f" OFFSET {offset}"
         if fetch_limit:
             query += f" LIMIT {fetch_limit}"
         cur.execute(query, params)
@@ -556,9 +712,15 @@ def get_all_posts(
         if method:
             query += " AND method = ?"
             params.append(method)
+        if only_without_sentiment:
+            query += " AND sentiment_score IS NULL"
         query += " ORDER BY scraped_at DESC"
+        if offset:
+            query += " OFFSET ?"
+            params.append(offset)
         if fetch_limit:
-            query += f" LIMIT {fetch_limit}"
+            query += " LIMIT ?"
+            params.append(fetch_limit)
         cur.execute(query, params)
         columns = [desc[0] for desc in cur.description]
         posts = [dict(zip(columns, row)) for row in cur.fetchall()]

@@ -41,3 +41,9 @@ data/*.db
 data/twitter_cookies.json
 data/exports/*
 !data/exports/.gitkeep
+
+# Données externes (CSV lourds, garder data_externe/ et README)
+data_externe/*.csv
+# Fichiers trop lourds pour GitHub (> 100 Mo)
+data_externe/**/*.bak
+data_externe/BMC_Twitter_influenceur/DB_CryptoInflu.bak

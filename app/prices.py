@@ -92,9 +92,15 @@ class CryptoPrices:
         params = {"vs_currency": "usd", "days": days, "interval": "daily"}
 
         try:
-            resp = self.session.get(url, params=params, timeout=10)
+            resp = self.session.get(url, params=params, timeout=15)
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"CoinGecko API {resp.status_code}: {resp.text[:200] if resp.text else 'sans détail'}"
+                )
             data = resp.json()
-
+            if "prices" not in data or not data.get("prices"):
+                err = data.get("error", data.get("status", {}).get("error_message", "réponse invalide"))
+                raise RuntimeError(f"CoinGecko: {err}")
             result = []
             for ts, price in data.get("prices", []):
                 result.append({
@@ -102,8 +108,10 @@ class CryptoPrices:
                     "price": round(price, 2)
                 })
             return result
-        except:
-            return []
+        except RuntimeError:
+            raise
+        except Exception as e:
+            raise RuntimeError(f"CoinGecko: {e}") from e
 
 
 # Fonction standalone pour import facile
